@@ -1,0 +1,153 @@
+{
+    "modules": [
+        {
+            "channel": "releases",
+            "module": "pymodbus",
+            "repository": "myna-project/pymodbus",
+            "version": "2.2.0-myna"
+        },
+        {
+            "channel": "releases",
+            "module": "pika",
+            "repository": "pika/pika",
+            "version": "1.1.0"
+        },
+        {
+            "channel": "releases",
+            "module": "enocean",
+            "repository": "kipe/enocean",
+            "version": "0.50.1"
+        },
+        {
+            "channel": "releases",
+            "module": "pyHS100",
+            "repository": "GadgetReactor/pyHS100",
+            "version": "0.3.4"
+        },
+        {
+            "channel": "releases",
+            "module": "xbee",
+            "repository": "niolabs/python-xbee",
+            "version": "v2.3.2"
+        },
+        {
+            "channel": "releases",
+            "module": "wolf",
+            "repository": "myna-project/Wolf",
+            "version": "v1.4.0"
+        },
+        {
+            "channel": "releases",
+            "module": "wolfui",
+            "repository": "myna-project/WolfUI",
+            "version": "v1.4.0"
+        }
+    ],
+    "plugins": [
+        {
+            "installed": true,
+            "need": [
+                "pika"
+            ],
+            "plugin": "in/amqp_json"
+        },
+        {
+            "installed": true,
+            "need": [
+                "pika"
+            ],
+            "plugin": "in/amqp_xml"
+        },
+        {
+            "installed": true,
+            "need": [
+                "enocean"
+            ],
+            "plugin": "in/enocean"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "in/iolink_json"
+        },
+        {
+            "installed": true,
+            "need": [
+                "pymodbus"
+            ],
+            "plugin": "in/iolink_modbus"
+        },
+        {
+            "installed": true,
+            "need": [
+                "pymodbus"
+            ],
+            "plugin": "in/modbus_rtu"
+        },
+        {
+            "installed": true,
+            "need": [
+                "pymodbus"
+            ],
+            "plugin": "in/modbus_tcp"
+        },
+        {
+            "installed": true,
+            "need": [
+                "pymodbus"
+            ],
+            "plugin": "in/qeed_tcp"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "in/mqtt_json"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "in/mqtt_raw"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "in/mqtt_xml"
+        },
+        {
+            "installed": false,
+            "need": [
+                "pyHS100"
+            ],
+            "plugin": "in/tplink"
+        },
+        {
+            "installed": false,
+            "need": [
+                "xbee"
+            ],
+            "plugin": "in/zigbee"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "out/influxdb"
+        },
+        {
+            "installed": true,
+            "need": [
+                "pika"
+            ],
+            "plugin": "out/amqp"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "out/mqtt"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "out/rest"
+        }
+    ]
+}

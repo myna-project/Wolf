@@ -1,0 +1,17 @@
+[Unit]
+Description=IEnergyDa Wolf IoT gateway systemd network configuration
+After=syslog.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/wolf
+ExecStart=/opt/wolf/netconfig.py
+ExecReload=/bin/kill -HUP -- $MAINPID
+StandardOutput=syslog
+StandardError=syslog
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

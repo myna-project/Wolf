@@ -1,0 +1,17 @@
+[Unit]
+Description=IEnergyDa Wolf IoT gateway
+After=syslog.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+WorkingDirectory=/opt/wolf
+ExecStart=/opt/wolf/wolf.py
+ExecReload=/bin/kill -HUP -- $MAINPID
+StandardOutput=syslog
+StandardError=syslog
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
