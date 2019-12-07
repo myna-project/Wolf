@@ -90,7 +90,7 @@ class WWebUpdate():
 
     def update(self, force=False):
         q = queue.Queue()
-        wufile = os.path.join(os.getcwd(), 'config/webupdate.json')
+        wufile = os.path.join(wolf.config.path, 'webupdate.json')
         wolf.logger.debug('Reading webupdate configuration %s' % wufile)
         try:
             with open(wufile) as infile:
@@ -120,15 +120,23 @@ class WWebUpdate():
                 continue
             if response.status_code != 200:
                 wolf.logger.error('Cannot check Github repositories: %s' % gitresp['message'])
-                return
+                return False
             if not gitresp:
                 wolf.logger.error('Repository %s empty, cannot update!' % mod.repository)
                 continue
-            gitlast = gitresp[0]
-            wolf.logger.debug('Repository %s (online version: %s installed version: %s)' % (mod.repository, gitlast['name'], mod.version))
-            if (gitlast['name'] != mod.version) or force:
+            gitlast = None
+            while gitresp:
+                gitlast = gitresp.pop()
+                if not gitlast.get('prerelease', False):
+                    break
+            if not gitlast:
+                wolf.logger.error('In repository %s there aren\'t stable releases, cannot update!' % mod.repository)
+                continue
+            name = gitlast.get('name') or gitlast.get('tag_name')
+            wolf.logger.debug('Repository %s (online version: %s installed version: %s)' % (mod.repository, name, mod.version))
+            if (name > mod.version) or force:
                 wolf.logger.info('Updating %s from repository %s ...' % (mod.module, mod.repository))
-                url = gitlast['zipball_url']
+                url = gitlast.get('zipball_url')
                 wolf.logger.debug('Downloading %s' % url)
                 try:
                     response = client.get(url, stream=True)
@@ -152,7 +160,7 @@ class WWebUpdate():
                 wolf.logger.debug("Downloaded %s buffer size: %d bytes" % (mod.module, buffer.tell()))
                 if self.__unzip(buffer, mod.module):
                     q.put(True)
-                    mod.version = gitlast['name']
+                    mod.version = name
                     wolf.logger.info('%s up to date' % mod.module)
             else:
                 wolf.logger.info('%s already up to date' % repo['import'])
@@ -164,4 +172,3 @@ class WWebUpdate():
             except IOError as e:
                 wolf.logger.error('Cannot update webupdate configuration %s: %s' % (wufile, str(e)))
         return q.qsize()
-
