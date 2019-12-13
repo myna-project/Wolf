@@ -131,7 +131,7 @@ class modbus_rtu():
                 client.close()
                 self.__lrelease()
                 return None
-            if math.isnan(decoded):
+            if math.isnan(decoded) or type(decoded) == bool:
                 logger.error("Unrecoverable error reading modbus device %s slave %d modbus address %d" % (self.port, self.slaveid, addr))
                 client.close()
                 self.__lrelease()

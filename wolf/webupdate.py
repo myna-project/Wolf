@@ -116,13 +116,13 @@ class WWebUpdate():
                 return False
             gitresp = json.loads(response.text)
             if response.status_code == 404:
-                wolf.logger.error('Repository %s not found, cannot update!' % mod.repository)
+                wolf.logger.error('Repository %s not found, cannot update %s!' % (mod.repository, mod.module))
                 continue
             if response.status_code != 200:
                 wolf.logger.error('Cannot check Github repositories: %s' % gitresp['message'])
                 return False
             if not gitresp:
-                wolf.logger.error('Repository %s empty, cannot update!' % mod.repository)
+                wolf.logger.error('Repository %s empty, cannot update %s!' % (mod.repository, mod.module))
                 continue
             gitlast = None
             while gitresp:
@@ -130,7 +130,7 @@ class WWebUpdate():
                 if not gitlast.get('prerelease', False):
                     break
             if not gitlast:
-                wolf.logger.error('In repository %s there aren\'t stable releases, cannot update!' % mod.repository)
+                wolf.logger.error('In repository %s there aren\'t stable releases, cannot update %s!' % (mod.repository, mod.module))
                 continue
             name = gitlast.get('name') or gitlast.get('tag_name')
             wolf.logger.debug('Repository %s (online version: %s installed version: %s)' % (mod.repository, name, mod.version))
@@ -155,7 +155,7 @@ class WWebUpdate():
                                 response.close()
                                 raise ValueError()
                 except ValueError:
-                    wolf.logger.error('Downloading of %s exceeded max size of %d bytes, cannot update!' % (mod.module, self.maxsize))
+                    wolf.logger.error('Downloading of %s exceeded max size of %d bytes, cannot update %s!' % (url, self.maxsize, mod.module))
                     continue
                 wolf.logger.debug("Downloaded %s buffer size: %d bytes" % (mod.module, buffer.tell()))
                 if self.__unzip(buffer, mod.module):
@@ -163,7 +163,7 @@ class WWebUpdate():
                     mod.version = name
                     wolf.logger.info('%s up to date' % mod.module)
             else:
-                wolf.logger.info('%s already up to date' % repo['import'])
+                wolf.logger.info('%s already up to date' % mod.module)
         if q.qsize():
             wolf.logger.debug('Updating webupdate configuration %s' % wufile)
             try:
