@@ -1,4 +1,4 @@
-from bitstring import BitArray
+import bitstring
 from dateutil import tz, parser
 from wolf.mapconfig import WCSVMap, WCSVType
 import math
@@ -38,10 +38,10 @@ class iolink_json():
             logger.error (str(e.__context__))
             return False
         if resp.status_code // 100 != 2:
-            logger.error("Error reading iolink device %s iolink port %d status code %d" % (self.url, self.xport, response.status_code))
+            logger.error("Error reading IO-Link device %s port %d status code %d" % (self.url, self.xport, response.status_code))
             return False
         json = resp.json()
-        barr = BitArray(hex=json['data']['value'])
+        barr = bitstring.BitArray(hex=json['data']['value'])
         ut = time.time()
         measures = {}
         for row in self.mapping:
@@ -49,25 +49,29 @@ class iolink_json():
             scale = float(scale)
             offset = float(offset)
             bits = int(bits)
-            # int8, int16, int32
-            if datatype in ['b', 'h', 'i']:
-                decoded = barr[-bits:].int
-            # uint8, uint16, uint32
-            if datatype in ['B', 'H', 'I']:
-                decoded = barr[-bits:].uint
-            # float (ieee754)
-            elif datatype == 'f':
-                decoded = barr[-bits:].float
-            # void (reserved bits)
-            elif datatype == 'v':
-                del barr[-bits:]
-                continue
+            try:
+                # int8, int16, int32
+                if datatype in ['b', 'h', 'i']:
+                    decoded = barr[-bits:].int
+                # uint8, uint16, uint32
+                if datatype in ['B', 'H', 'I']:
+                    decoded = barr[-bits:].uint
+                # float (ieee754)
+                elif datatype == 'f':
+                    decoded = barr[-bits:].float
+                # void (reserved bits)
+                elif datatype == 'v':
+                    del barr[-bits:]
+                    continue
+            except bitstring.InterpretError:
+                logger.error("Error reading IO-Link device %s port %d %s" % (self.url, self.xport, name))
+                return None
             del barr[-bits:]
             if math.isnan(decoded):
-                logger.error("Error reading iolink device %s iolink port %d %s" % (self.url, self.xport, name))
+                logger.error("Error reading IO-Link device %s port %d %s" % (self.url, self.xport, name))
                 return None
             value = decoded * scale + offset
             measures[name] = value
-            logger.debug('IoLink device %s iolink port %d %s %s %s' % (self.url, self.xport, name, value, unit))
+            logger.debug('IO-Link device %s port %d %s %s %s' % (self.url, self.xport, name, value, unit))
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
         return data

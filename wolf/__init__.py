@@ -31,7 +31,7 @@ __status__      = 'Production'
 __summary__     = 'Wolf is a lightweight and modular IoT gateway.'
 __title__       = 'IEnergyDa Wolf'
 __uri__         = 'https://github.com/myna-project/Wolf'
-__version__     = 'v1.4.0'
+__version__     = 'v1.4.2'
 
 import configparser
 from datetime import datetime

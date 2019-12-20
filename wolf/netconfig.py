@@ -219,6 +219,7 @@ def main():
     netconfig.read(NETCONFIG)
 
     config = WConfig()
+    config.path = os.path.join(os.getcwd(), 'config')
     config.read(os.path.join(config.path, '%s.ini' % __package__))
 
     wolf.config = config
