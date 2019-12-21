@@ -126,7 +126,7 @@ class WWebUpdate():
                 continue
             gitlast = None
             while gitresp:
-                gitlast = gitresp.pop()
+                gitlast = gitresp.pop(0)
                 if not gitlast.get('prerelease', False):
                     break
             if not gitlast:
