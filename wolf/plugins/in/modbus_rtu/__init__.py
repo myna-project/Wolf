@@ -18,7 +18,8 @@ locks = {}
 
 class modbus_rtu():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.lock = threading.Lock()
         self.clientid = config.clientid
         self.deviceid = config.get(self.name, 'deviceid')
@@ -55,7 +56,7 @@ class modbus_rtu():
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0}
         measures = {}
         self.__lacquire()
-        client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout, retry_on_empty=True)
+        client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout, retry_on_empty=True, retry_on_invalid=True)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.port))
             self.__lrelease()
@@ -79,8 +80,8 @@ class modbus_rtu():
                 else:
                     addr = register - 1
                     result = client.read_coils(addr, types[datatype], unit=self.slaveid)
-            except ConnectionException:
-                logger.error("Error reading modbus device %s slave %d address %d: %s" % (self.port, self.slaveid, addr, result))
+            except ConnectionException as e:
+                logger.error("Error reading bridge %s slave %d modbus address %d: %s" % (self.host, self.slaveid, addr, str(e)))
                 client.close()
                 self.__lrelease()
                 return None

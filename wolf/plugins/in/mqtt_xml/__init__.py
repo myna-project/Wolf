@@ -10,7 +10,8 @@ TLSVersions = {'tlsv1.0': ssl.PROTOCOL_TLSv1, 'tlsv1.1': ssl.PROTOCOL_TLSv1_1, '
 
 class mqtt_xml():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.clientid = config.clientid
         self.deviceid = config.get(self.name, 'deviceid')
         self.descr = config.get(self.name, 'descr', fallback = None)
@@ -98,6 +99,7 @@ class mqtt_xml():
             self.client.connect(self.host, port=self.port, keepalive=self.keepalive)
         except (IOError, OSError) as e:
             logger.warn('Cannot connect MQTT broker %s: %s' % (self.host, str(e)))
+            return
         self.client.loop_start()
         # Workaround for setting thread name coherent with plugin's thread name
         self.client._thread.name = self.name

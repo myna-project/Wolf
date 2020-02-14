@@ -21,7 +21,8 @@ locks = {}
 
 class qeed_tcp():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.lock = threading.Lock()
         self.clientid = config.clientid
         self.deviceid = config.get(self.name, 'deviceid')
@@ -58,7 +59,7 @@ class qeed_tcp():
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4}
         measures = {}
         self.__lacquire()
-        client = self.mbclient(host=self.host, port=self.port, retries=self.retries, backoff=self.backoff, timeout=self.timeout, framer=self.mbframer, retry_on_empty=True)
+        client = self.mbclient(host=self.host, port=self.port, retries=self.retries, backoff=self.backoff, timeout=self.timeout, framer=self.mbframer, retry_on_empty=True, retry_on_invalid=True)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             self.__lrelease()
@@ -82,8 +83,8 @@ class qeed_tcp():
                 else:
                     addr = register - 1
                     result = client.read_coils(addr, types[datatype], unit=self.slaveid)
-            except ConnectionException:
-                logger.error("Error reading bridge %s slave %d modbus address %d: %s" % (self.host, self.slaveid, addr, result))
+            except ConnectionException as e:
+                logger.error("Error reading bridge %s slave %d modbus address %d: %s" % (self.host, self.slaveid, addr, str(e)))
                 client.close()
                 self.__lrelease()
                 return None

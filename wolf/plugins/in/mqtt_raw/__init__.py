@@ -9,7 +9,8 @@ TLSVersions = {'tlsv1.0': ssl.PROTOCOL_TLSv1, 'tlsv1.1': ssl.PROTOCOL_TLSv1_1, '
 
 class mqtt_raw():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.clientid = config.clientid
         self.deviceid = config.get(self.name, 'deviceid')
         self.descr = config.get(self.name, 'descr', fallback = None)
@@ -78,6 +79,7 @@ class mqtt_raw():
             self.client.username_pw_set(username=self.username, password=self.password)
         try:
             self.client.connect(self.host, port=self.port, keepalive=self.keepalive)
+            return
         except (IOError, OSError) as e:
             logger.warn('Cannot connect MQTT broker %s: %s' % (self.host, str(e)))
         self.client.loop_start()

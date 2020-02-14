@@ -31,7 +31,7 @@ __status__      = 'Production'
 __summary__     = 'Wolf is a lightweight and modular IoT gateway.'
 __title__       = 'IEnergyDa Wolf'
 __uri__         = 'https://github.com/myna-project/Wolf'
-__version__     = 'v1.4.2'
+__version__     = 'v1.4.4'
 
 import configparser
 from datetime import datetime
@@ -208,7 +208,7 @@ class WConfig(configparser.ConfigParser):
         self.clientid = '1'
         self.netslave = 'http://localhost:8085'
         self.webaddr = '0.0.0.0'
-        self.webport = 8080
+        self.webport = 8088
         self.webroot = 'wolfui'
         super(WConfig, self).__init__()
 
@@ -272,6 +272,8 @@ class WApp():
 
         for plugin in self.__plugins_in:
             self.__call_method(plugin, 'stop')
+        for plugin in self.__plugins_out:
+            self.__call_method(plugin, 'stop')
         self.__plugins_in = []
         self.__plugins_out = []
 
@@ -296,12 +298,11 @@ class WApp():
                     else:
                         logger.debug('Section %s found in configuration' % section)
                         loaded_class = getattr(loaded_mod, name)
-                        loaded_class.name = section
                         if config.getboolean(section, 'disabled', fallback = False):
                             logger.warning('%s administratively disabled' % section)
                             continue
                         try:
-                            self.__plugins_in.append(loaded_class())
+                            self.__plugins_in.append(loaded_class(section))
                         except (configparser.NoOptionError, FileNotFoundError, ValueError) as e:
                             logger.error('Plugin %s poorly configured: %s' % (section, str(e)))
                             logger.warning('Plugin %s disabled' % section)
@@ -326,9 +327,8 @@ class WApp():
                 logger.info('Plugin %s disabled: not configured' % name)
                 continue
             loaded_class = getattr(loaded_mod, name)
-            loaded_class.name = name
             try:
-                self.__plugins_out.append(loaded_class())
+                self.__plugins_out.append(loaded_class(name))
                 cache.queues.append(name)
             except (configparser.NoOptionError, FileNotFoundError, ValueError) as e:
                 logger.error('Plugin poorly configured: %s' % str(e))

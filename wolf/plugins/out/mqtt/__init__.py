@@ -12,7 +12,8 @@ TLSVersions = {'tlsv1.0': ssl.PROTOCOL_TLSv1, 'tlsv1.1': ssl.PROTOCOL_TLSv1_1, '
 
 class mqtt():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.host = config.get(self.name, 'host', fallback = '127.0.0.1')
         self.port = config.getint(self.name, 'port', fallback = 1883)
         self.username = config.get(self.name, 'username', fallback = None)
@@ -23,14 +24,16 @@ class mqtt():
         self.topic = config.get(self.name, 'topic')
         self.qos = config.getint(self.name, 'qos', fallback = 0)
         self.cacert = config.get(self.name, 'cacert', fallback = None)
-        self.tlsversion = config.getenum(self.name, 'tlsversion', enum=TLSVersions, fallback = 'tlsv1.0')
+        self.tlsversion = config.getenum(self.name, 'tlsversion', enum=TLSVersions, fallback = 'tlsv1.2')
         self.tlsverify = config.getboolean(self.name, 'tlsverify', fallback = True)
+        self.retain = config.getboolean(self.name, 'retain', fallback = False)
         logger.info("MQTT broker %s:%d" % (self.host, self.port))
-        logger.info("MQTT TLS version: %s verify: %s CA certificate: %s" % (tlsversion, self.tlsverify, self.cacert))
+        logger.info("MQTT TLS version: %s verify: %s CA certificate: %s" % (self.tlsversion, self.tlsverify, self.cacert))
 
         self.client = paho.Client(transport=self.transport)
-        self.client.on_connect=self.on_connect
-        self.client.on_disconnect=self.on_disconnect
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
+        self.client.on_publish = self.on_publish
 
         if self.cacert:
             try:
@@ -48,12 +51,20 @@ class mqtt():
             self.client.connect(self.host, port=self.port, keepalive=self.keepalive)
         except (IOError, OSError) as e:
             logger.warn('Cannot connect MQTT broker %s: %s' % (self.host, str(e)))
+            return
+        self.client.loop_start()
+        # Workaround for setting thread name coherent with plugin's thread name
+        self.client._thread.name = self.name
 
     def on_connect(self, client, userdata, flags, rc):
         logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
 
     def on_disconnect(self, client, userdata, rc=0):
-        logger.warn("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
+        if rc != 0:
+            logger.warn("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
+
+    def on_publish(self, client, userdata, mid):
+        logger.debug("Published message %d by MQTT broker %s" % (mid, self.host))
 
     def post(self, rawdata):
         topic = '%s/measures' % self.topic
@@ -67,13 +78,18 @@ class mqtt():
         for measure in data['measures']:
             measures.append({'measure_id': measure, 'value': data['measures'][measure]})
         data['measures'] = measures
-        (rc, mid) = self.client.publish(topic, payload=json.dumps(data), qos=self.qos)
-        logger.debug("Published measures on MQTT broker %s topic %s QoS %d result code %d" % (self.host, topic, self.qos, rc))
+        (rc, mid) = self.client.publish(topic, payload=json.dumps(data), qos=self.qos, retain=self.retain)
+        logger.debug("Published measures on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
         return not rc
 
     def post_config(self):
         data = cache.load_meta()
         topic = '%s/config' % self.topic
-        (rc, mid) = self.client.publish(topic, payload=json.dumps(data), qos=self.qos)
-        logger.debug("Published configuration on MQTT broker %s topic %s QoS %d result code %d" % (self.host, topic, self.qos, rc))
+        (rc, mid) = self.client.publish(topic, payload=json.dumps(data), qos=self.qos, retain=self.retain)
+        logger.debug("Published configuration on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
         return not rc
+
+    def stop(self):
+        self.client.loop_stop()
+        self.client.disconnect()
+        logger.info("Disconnected from MQTT broker %s:%d" % (self.host, self.port))

@@ -9,7 +9,8 @@ from urllib.parse import urlparse
 
 class amqp():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.host = config.get(self.name, 'host', fallback = '127.0.0.1')
         self.port = config.getint(self.name, 'port', fallback = 5672)
         self.retries = config.getint(self.name, 'retries', fallback = 3)

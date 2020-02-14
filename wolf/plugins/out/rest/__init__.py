@@ -3,15 +3,16 @@ from dateutil import tz
 import os
 import requests
 from requests.packages.urllib3.util.retry import Retry
-from requests.exceptions import ConnectionError, ConnectTimeout, HTTPError, Timeout
+from requests.exceptions import ConnectionError, ConnectTimeout, HTTPError, Timeout, ReadTimeout
 import urllib
 import urllib3
 
-urllib3.disable_warnings()
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class rest():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.__client = requests.session()
         self.baseurl = config.get(self.name, 'baseurl', fallback = None)
         self.username = config.get(self.name, 'username', fallback = None)
@@ -44,7 +45,7 @@ class rest():
         try:
             response = self.__client.get(self.token, timeout=self.timeout, verify=False, proxies=self.proxies)
             logger.debug('GET %s' % self.token)
-        except (ConnectionError, ConnectTimeout) as e:
+        except (ConnectionError, ConnectTimeout, ReadTimeout) as e:
             logger.error (str(e))
             return False
         except TypeError as e:
@@ -70,7 +71,7 @@ class rest():
                 auth = (self.username, self.password)
             response = self.__client.post(url, auth=auth, json=data, headers=headers, timeout=self.timeout, verify=False, proxies=self.proxies)
             logger.debug('POST %s JSON: %s' % (url, data))
-        except (ConnectionError, ConnectTimeout) as e:
+        except (ConnectionError, ConnectTimeout, ReadTimeout) as e:
             logger.error (str(e))
             return False
         except TypeError as e:
@@ -84,7 +85,7 @@ class rest():
                 return self.__post(data, url)
             else:
                 logger.error('Server %s forbids POST requests. Check plugin and server configuration (eg. authentication).' % (self.baseurl))
-                self.__recursion = False
+        self.__recursion = False
         return (response.status_code, response.text)
 
     def post(self, rawdata):

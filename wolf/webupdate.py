@@ -5,6 +5,7 @@ import io
 import json
 import os
 import requests
+from requests.exceptions import ConnectionError, ConnectTimeout, HTTPError, Timeout, ReadTimeout
 import shutil
 import time
 import zipfile

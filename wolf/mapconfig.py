@@ -17,14 +17,12 @@ class WCSVMap():
         pass
 
     def load(self, csvfile, csvtype):
-        try:
-            with open(csvfile, 'r') as f:
-                lines = csv.reader(f, quoting=csv.QUOTE_NONNUMERIC)
-                lines = list(lines)
-            f.close()
-        except (FileNotFoundError, ValueError) as e:
-            wolf.logger.error(str(e))
-            return
+        with open(csvfile, 'r') as f:
+            lines = csv.reader(self.__decomment(f), quoting=csv.QUOTE_NONNUMERIC)
+            lines = list(lines)
+        f.close()
+        if not lines:
+            raise ValueError('%s empty (or only invalid/comments lines)' % csvfile);
         tree = etree.fromstring('<O/>')
         self.mapping = lines
         for ln, row in enumerate(lines):
@@ -65,4 +63,9 @@ class WCSVMap():
         val = arr[num - 1]
         if not isinstance(val, typ):
             raise TypeError("parameter %d ('%s') must be %s, not %s" % (num, val, typ, type(val)))
+
+    def __decomment(self, csvfile):
+        for row in csvfile:
+            raw = row.split('#')[0].strip()
+            if raw: yield raw
 

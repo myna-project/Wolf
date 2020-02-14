@@ -12,7 +12,8 @@ from urllib.parse import urlparse
 
 class amqp_json():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.clientid = config.clientid
         self.deviceid = config.get(self.name, 'deviceid')
         self.descr = config.get(self.name, 'descr', fallback = None)

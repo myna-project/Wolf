@@ -8,7 +8,8 @@ from requests.exceptions import ConnectionError, ConnectTimeout, HTTPError, Time
 
 class iolink_json():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.clientid = config.clientid
         self.deviceid = config.get(self.name, 'deviceid')
         self.descr = config.get(self.name, 'descr', fallback = None)

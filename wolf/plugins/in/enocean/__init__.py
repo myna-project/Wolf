@@ -18,7 +18,8 @@ except ImportError:
 
 class enocean():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.wait = threading.Event()
         self.comm = None
         self.queue = queue.Queue()

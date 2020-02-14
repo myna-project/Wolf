@@ -18,7 +18,8 @@ ModbusEndianity = {'little': Endian.Little, 'big': Endian.Big}
 
 class modbus_tcp():
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.clientid = config.clientid
         self.deviceid = config.get(self.name, 'deviceid')
         self.descr = config.get(self.name, 'descr', fallback = None)
@@ -40,7 +41,7 @@ class modbus_tcp():
     def poll(self):
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0}
         measures = {}
-        client = self.mbclient(host=self.host, port=self.port, retries=self.retries, backoff=self.backoff, timeout=self.timeout, framer=self.mbframer, retry_on_empty=True)
+        client = self.mbclient(host=self.host, port=self.port, retries=self.retries, backoff=self.backoff, timeout=self.timeout, framer=self.mbframer, retry_on_empty=True, retry_on_invalid=True)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             return None
@@ -63,10 +64,9 @@ class modbus_tcp():
                 else:
                     addr = register - 1
                     result = client.read_coils(addr, types[datatype], unit=self.slaveid)
-            except ConnectionException:
-                logger.error("Error reading bridge %s slave %d modbus address %d: %s" % (self.host, self.slaveid, addr, result))
+            except ConnectionException as e:
+                logger.error("Error reading bridge %s slave %d modbus address %d: %s" % (self.host, self.slaveid, addr, str(e)))
                 client.close()
-                self.__lrelease()
                 return None
             if type(result) == ExceptionResponse:
                 logger.error("Error reading bridge %s slave %d modbus address %d: %s" % (self.host, self.slaveid, addr, result))

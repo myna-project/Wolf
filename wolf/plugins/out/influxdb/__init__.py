@@ -6,13 +6,14 @@ from requests.exceptions import ConnectionError, ConnectTimeout, HTTPError, Time
 
 class influxdb():
 
-    def __init__(self):
-        self.host = config.get('influxdb', 'host', fallback = 'localhost')
-        self.port = config.getint('influxdb', 'port', fallback = '8086')
-        self.db = config.get('influxdb', 'db', fallback = 'wolf')
-        self.username = config.get('influxdb', 'username', fallback = 'root')
-        self.password = config.get('influxdb', 'password', fallback = 'root')
-        self.ssl = config.getboolean('influxdb', 'ssl', fallback = False)
+    def __init__(self, name):
+        self.name = name
+        self.host = config.get(self.name, 'host', fallback = 'localhost')
+        self.port = config.getint(self.name, 'port', fallback = '8086')
+        self.db = config.get(self.name, 'db', fallback = 'wolf')
+        self.username = config.get(self.name, 'username', fallback = 'root')
+        self.password = config.get(self.name, 'password', fallback = 'root')
+        self.ssl = config.getboolean(self.name, 'ssl', fallback = False)
 
         self.client = InfluxDBClient(host=self.host, port=self.port, username=self.username, password=self.password, ssl=self.ssl)
         logger.info('Influxdb connection: %s:%d db "%s"' % (self.host, self.port, self.db))
