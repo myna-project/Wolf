@@ -47,6 +47,9 @@ class WWebUpdate():
         exclude.discard(dest)
         rootdir = zip.filelist[0].filename
 
+        if not self.__check_access(dest):
+            return 0
+
         # extract only missing or differing files, only of destination directory
         for f in zip.infolist():
             filename = f.filename.replace(rootdir, '')
@@ -56,18 +59,19 @@ class WWebUpdate():
                 wolf.logger.debug('Skipping %s' % filename)
                 continue
             f.filename = filename
-            if f.is_dir():
-                if not os.path.isdir(filename):
+            if f.filename[-1] == '/':
+                if self.__check_access(os.path.abspath(os.path.join(filename, os.pardir))) and not os.path.isdir(filename):
                     wolf.logger.debug('Extracting %s' % filename)
                     q.put(zip.extract(f))
-            if not f.is_dir():
-                if not os.path.isfile(filename):
-                    wolf.logger.debug('Extracting %s' % filename)
-                    q.put(zip.extract(f))
-                else:
+            else:
+                if os.path.isfile(filename):
                     crc32 = zlib.crc32(open(filename,"rb").read())
-                    if crc32 != f.CRC:
+                    if self.__check_access(filename) and crc32 != f.CRC:
                         wolf.logger.debug('Overwriting %s' % filename)
+                        q.put(zip.extract(f))
+                else:
+                    if self.__check_access(filename):
+                        wolf.logger.debug('Extracting %s' % filename)
                         q.put(zip.extract(f))
 
         # cleanup destination directory of possible aliens/older files
@@ -75,6 +79,8 @@ class WWebUpdate():
         namelist = [os.path.relpath(x) for x in zip.namelist()]
         for f in filelist:
             if not os.path.relpath(f) in namelist:
+                if not self.__check_access(f):
+                    continue
                 wolf.logger.debug('Removing %s' % f)
                 if os.path.isdir(f):
                     q.put(shutil.rmtree(f, ignore_errors=True))
@@ -82,6 +88,12 @@ class WWebUpdate():
                     q.put(os.unlink(f))
 
         return q.qsize()
+
+    def __check_access(self, path):
+        if os.path.exists(path) and not os.access(path, os.W_OK):
+            wolf.logger.warning('%s is not writable by uid/gid %d:%d, skipping!' % (path, os.getuid(), os.getgid()))
+            return False
+        return True
 
     def __mods(self, plugins, installed):
         return set(sum([plugin.need for plugin in plugins if plugin.installed == installed], []))

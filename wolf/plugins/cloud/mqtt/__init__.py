@@ -59,16 +59,20 @@ class mqtt():
         # Workaround for setting thread name coherent with plugin's thread name
         self.client._thread.name = self.name
 
-        topic = '%s/write' % self.topic
-        self.client.subscribe(topic, qos=self.qos)
-        logger.debug('Subscribed to topic "%s" QoS %d' % (topic, self.qos))
-
     def on_connect(self, client, userdata, flags, rc):
-        logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
+        if rc != 0:
+            logger.warn("Connected to MQTT broker %s result code %d" % (self.host, rc))
+        else:
+            logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
+            topic = '%s/write' % self.topic
+            self.client.subscribe(topic, qos=self.qos)
+            logger.debug('Subscribed to topic "%s" QoS %d' % (topic, self.qos))
 
     def on_disconnect(self, client, userdata, rc=0):
         if rc != 0:
             logger.warn("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
+        else:
+            logger.debug("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
 
     def on_publish(self, client, userdata, mid):
         logger.debug("Published message %d by MQTT broker %s" % (mid, self.host))
@@ -86,14 +90,20 @@ class mqtt():
             measures.append({'measure_id': measure, 'value': data['measures'][measure]})
         data['measures'] = measures
         (rc, mid) = self.client.publish(topic, payload=json.dumps(data), qos=self.qos, retain=self.retain)
-        logger.debug("Published measures on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
+        if rc:
+            logger.warn("Published measures on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
+        else:
+            logger.debug("Published measures on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
         return not rc
 
     def post_config(self):
         data = cache.load_meta()
         topic = '%s/config' % self.topic
         (rc, mid) = self.client.publish(topic, payload=json.dumps(data), qos=self.qos, retain=self.retain)
-        logger.debug("Published configuration on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
+        if rc:
+            logger.warn("Published configuration on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
+        else:
+            logger.debug("Published configuration on MQTT broker %s topic %s QoS %d result code %d message %d retain %r" % (self.host, topic, self.qos, rc, mid, self.retain))
         return not rc
 
     def stop(self):

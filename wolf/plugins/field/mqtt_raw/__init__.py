@@ -32,10 +32,21 @@ class mqtt_raw():
         cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
 
     def on_connect(self, client, userdata, flags, rc):
-        logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
+        if rc != 0:
+            logger.warn("Connected to MQTT broker %s result code %d" % (self.host, rc))
+        else:
+            logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
+            for row in self.mapping:
+                (name, descr, unit, datatype, rw, scale, offset, topic, qos) = row
+                qos = int(qos)
+                self.client.subscribe(topic, qos=qos)
+                logger.debug('Subscribed to topic "%s" QoS %d' % (topic, qos))
 
     def on_disconnect(self, client, userdata, rc=0):
-        logger.warn("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
+        if rc != 0:
+            logger.warn("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
+        else:
+            logger.debug("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
 
     def on_message(self, client, userdata, message):
         logger.debug('Plugin %s broker %s topic "%s" QoS %s message "%s"' % (self.name, self.host, message.topic, message.qos, message.payload.decode("utf-8")))
@@ -57,13 +68,17 @@ class mqtt_raw():
                 cache.store(data)
                 break
 
+    def on_publish(self, client, userdata, mid):
+        logger.debug("Published message %d by MQTT broker %s" % (mid, self.host))
+
     def run(self):
         logger.info("MQTT broker %s:%d" % (self.host, self.port))
 
         self.client = paho.Client(transport=self.transport)
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
+        self.client.on_publish = self.on_publish
         self.client.on_message=self.on_message
-        self.client.on_connect=self.on_connect
-        self.client.on_disconnect=self.on_disconnect
 
         if self.tlsenable:
             logger.info("MQTT TLS version: %s verify: %s CA certificate: %s" % (self.tlsversion, self.tlsverify, self.cacert))
@@ -80,18 +95,12 @@ class mqtt_raw():
             self.client.username_pw_set(username=self.username, password=self.password)
         try:
             self.client.connect(self.host, port=self.port, keepalive=self.keepalive)
-            return
         except (IOError, OSError) as e:
             logger.warn('Cannot connect MQTT broker %s: %s' % (self.host, str(e)))
+            return
         self.client.loop_start()
         # Workaround for setting thread name coherent with plugin's thread name
         self.client._thread.name = self.name
-
-        for row in self.mapping:
-            (name, descr, unit, datatype, rw, scale, offset, topic, qos) = row
-            qos = int(qos)
-            self.client.subscribe(topic, qos=qos)
-            logger.debug('Subscribed to topic "%s" QoS %d' % (topic, qos))
 
     def stop(self):
         self.client.loop_stop()
@@ -104,6 +113,9 @@ class mqtt_raw():
             (name, descr, unit, datatype, rw, scale, offset, topic, qos) = row[0]
             qos = int(qos)
             (rc, mid) = self.client.publish(topic, payload=value, qos=qos)
-            logger.debug("Published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, qos, rc, mid, value))
+            if rc:
+                logger.warn("Not published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, qos, rc, mid, value))
+            else:
+                logger.debug("Published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, qos, rc, mid, value))
             return not rc
         return False

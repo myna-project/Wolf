@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-""" IEnergyDa Wolf IoT gateway
+""" Wolf IoT gateway
 
 Wolf is a lightweight and modular IoT gateway written in python. Wolf receives
 or retrieves data, depending on the protocol used, from various industrial
@@ -29,9 +29,9 @@ __email__       = 'info@myna-project.org'
 __license__     = 'GPLv3'
 __status__      = 'Production'
 __summary__     = 'Wolf is a lightweight and modular IoT gateway.'
-__title__       = 'IEnergyDa Wolf'
+__title__       = 'Wolf'
 __uri__         = 'https://github.com/myna-project/Wolf'
-__version__     = 'v1.4.4'
+__version__     = 'v1.5.5'
 
 import configparser
 from datetime import datetime
@@ -45,9 +45,21 @@ import schedule
 import signal
 import threading
 import time
-from wolf.webconfig import WWebConfig
-from wolf.webmeasures import WWebMeasures
 from wolf.webupdate import WWebUpdate
+
+try:
+    import queue
+except ImportError:
+    import Queue as queue
+
+toupdate = False
+try:
+    from wolf.webconfig import WWebConfig
+    import wolf.webmeasures
+    from influxdb import InfluxDBClient, resultset
+    from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
+except (ImportError, ModuleNotFoundError) as e:
+    toupdate = True
 
 class WLogger(logging.Logger):
 
@@ -84,28 +96,50 @@ class WLogger(logging.Logger):
 class WCache():
 
     def __init__(self):
-        self.host = 'localhost'
-        self.port = 6379
-        self.db = 0
-        self.password = None
-        self.expire = 0
+        self.defaults = {'host': 'localhost', 'port': 6379, 'db': 0, 'password': None, 'expire': 0}
+        for k, v in self.defaults.items():
+            setattr(self, k, v)
         self.setup()
 
     def setup(self):
-        if 'redis' in config.sections():
-            self.host = config.get('redis', 'host', fallback = self.host)
-            self.port = config.getint('redis', 'port', fallback = self.port)
-            self.db = config.getint('redis', 'db', fallback = self.db)
-            self.password = config.get('redis', 'password', fallback = self.password)
-            self.expire = config.getint('redis', 'expire', fallback = self.expire)
+        self.client_id = config.clientid
+        self.client_descr = config.descr
+        section = 'redis'
+        if section in config.sections():
+            self.host = config.get(section, 'host', fallback = self.host)
+            self.port = config.getint(section, 'port', fallback = self.port)
+            self.db = config.getint(section, 'db', fallback = self.db)
+            self.password = config.get(section, 'password', fallback = self.password)
+            self.expire = config.getint(section, 'expire', fallback = self.expire)
         logger.debug('Redis connection pool: %s:%d db %d' % (self.host, self.port, self.db))
         if self.expire:
             logger.info('%s cache expire %s days' % (__title__, self.expire))
         self.pool = redis.ConnectionPool(host=self.host, port=self.port, db=self.db, password=self.password)
-        self.meta = []
+        self.meta = {}
         self.queues = []
-        self.__ping()
+        self.__store_client()
 
+    def __store_client(self):
+        self.__ping()
+        r = redis.Redis(connection_pool=self.pool)
+        client_id = self.client_id
+        client_descr = self.client_descr
+        key = 'clients:%s' % client_id
+        data = msgpack.packb({'client_id': client_id, 'client_descr': client_descr})
+        r.set(key, data)
+
+    def clients(self, **kwargs):
+        self.__ping()
+        r = redis.Redis(connection_pool=self.pool)
+        clients = []
+        keys = r.keys('clients:*')
+        for key in keys:
+            clients.append(msgpack.unpackb(r.get(key), encoding='utf-8'))
+        client_id = kwargs.get('client_id')
+        if client_id:
+            clients = list(filter(lambda item: item.get('client_id') == client_id, clients))[0]
+        return clients
+        
     def __ping(self):
         r = redis.Redis(connection_pool=self.pool)
         try:
@@ -121,39 +155,52 @@ class WCache():
         if not data:
             return
         self.__ping()
-        r = redis.Redis(connection_pool=self.pool, decode_responses=True)
+        client_id = self.client_id
+        r = redis.Redis(connection_pool=self.pool)
         p = r.pipeline()
         p.multi()
-        key = 'data:%s:%s:%s' % (data['client_id'], data['device_id'], int(data['ts']))
+        key = 'data:%s:%s:last' % (data.get('client_id'), data.get('device_id'))
+        p.set(key, msgpack.packb(data))
+        key = 'data:%s:%s:%s' % (data.get('client_id'), data.get('device_id'), int(data.get('ts')))
         p.set(key, msgpack.packb(data))
         if self.expire:
             p.expire(key, self.expire * 86400)
         for queue in self.queues:
-            p.sadd('queue:%s' % queue, key)
+            p.sadd('queue:%s:%s' % (client_id, queue), key)
         p.execute()
+
+    def last(self, client_id, device_id):
+        self.__ping()
+        r = redis.Redis(connection_pool=self.pool)
+        key = 'data:%s:%s:last' % (client_id, device_id)
+        value = r.get(key)
+        if not value:
+            return {}
+        return msgpack.unpackb(value, encoding='utf-8')
 
     def load(self, queue, callback):
         self.__ping()
-        r = redis.Redis(connection_pool=self.pool, decode_responses=True)
-        for key in r.smembers('queue:%s' % queue):
+        client_id = self.client_id
+        r = redis.Redis(connection_pool=self.pool)
+        for key in r.smembers('queue:%s:%s' % (client_id, queue)):
             p = r.pipeline()
-            p.watch('queue:*')
+            p.watch('queue:%s:*' % client_id)
             p.multi()
             if not r.keys(key):
                 logger.error('Expected cache key %s not found' % key)
-                p.srem('queue:%s' % queue, key)
+                p.srem('queue:%s:%s' % (client_id, queue), key)
                 p.execute()
                 continue
-            data = msgpack.unpackb(r.get(key), encoding = 'utf-8')
+            data = msgpack.unpackb(r.get(key), encoding='utf-8')
             if callback(data):
                 # pop from current queue
-                p.srem('queue:%s' % queue, key)
+                p.srem('queue:%s:%s' % (client_id, queue), key)
                 # orphaned keys check and delete in other queues
                 ism = False
                 for kueue in self.queues:
                     if kueue == queue:
                         continue
-                    ism |= r.sismember('queue:%s' % kueue, key)
+                    ism |= r.sismember('queue:%s:%s' % (client_id, kueue), key)
                 if not ism:
                     p.delete(key)
                 p.execute()
@@ -162,60 +209,65 @@ class WCache():
 
     def save(self):
         self.__ping()
-        r = redis.Redis(connection_pool=self.pool, decode_responses=True)
+        r = redis.Redis(connection_pool=self.pool)
         r.bgsave()
 
     def load_meta(self, **kwargs):
         self.__ping()
-        self.meta = []
-        r = redis.Redis(connection_pool=self.pool, decode_responses=True)
+        r = redis.Redis(connection_pool=self.pool)
         keys = r.keys('meta:*')
         for key in keys:
-            self.meta.append(msgpack.unpackb(r.get(key), encoding = 'utf-8'))
-        meta = self.meta
+            self.meta[tuple(key.decode().split(':')[1:])] = msgpack.unpackb(r.get(key), encoding='utf-8')
+        meta = list(self.meta.values())
         client_id = kwargs.get('client_id')
         device_id = kwargs.get('device_id')
         measure_id = kwargs.get('measure_id')
+        read_write = kwargs.get('read_write')
         if client_id:
-            meta = list(filter(lambda item: item['client_id'] == client_id, meta))
+            meta = list(filter(lambda item: item.get('client_id') == client_id, meta))
         if device_id:
-            meta = list(filter(lambda item: item['device_id'] == device_id, meta))
+            meta = list(filter(lambda item: item.get('device_id') == device_id, meta))
         if measure_id:
-            meta = list(filter(lambda item: item['measure_id'] == measure_id, meta))
+            meta = list(filter(lambda item: item.get('measure_id') == measure_id, meta))
+        if read_write:
+            meta = list(filter(lambda item: item.get('read_write') == read_write, meta))
         return meta
 
     def store_meta(self, device_id, plugin_id, device_descr, mapping):
+        if not mapping:
+            return
         self.__ping()
-        client_id = config.clientid
-        meta = []
+        client_id = self.client_id
+        meta = {}
         for row in mapping:
-            (measure_id, measure_descr, measure_unit, measure_type, *_) = row
-            meta.append({'client_id': client_id, 'device_id': device_id, 'measure_id': measure_id, 'plugin_id': plugin_id, 'device_descr': device_descr, 'measure_descr': measure_descr, 'measure_unit': measure_unit, 'measure_type': measure_type})
-        r = redis.Redis(connection_pool=self.pool, decode_responses=True)
-        for row in meta:
-            key = 'meta:%s:%s:%s' % (row['client_id'],  row['device_id'],  row['measure_id'])
-            r.set(key, msgpack.packb(row))
+            (measure_id, measure_descr, measure_unit, measure_type, read_write, *_) = row
+            meta[(client_id, device_id, measure_id)] = {'client_id': client_id, 
+            'device_id': device_id, 'device_descr': device_descr, 'plugin_id': plugin_id, 
+            'measure_id': measure_id, 'measure_descr': measure_descr, 'measure_unit': measure_unit, 
+            'measure_type': measure_type, 'read_write': bool(read_write)}
+        r = redis.Redis(connection_pool=self.pool)
+        p = r.pipeline()
+        p.multi()
+        for row in meta.values():
+            key = 'meta:%s:%s:%s' % (row.get('client_id'), row.get('device_id'), row.get('measure_id'))
+            p.set(key, msgpack.packb(row))
+        p.execute()
+        self.meta.update(meta)
 
 class WConfig(configparser.ConfigParser):
 
     def __init__(self):
-        self.loglevel = 'INFO'
-        self.interval = 3600
-        self.host = 'localhost'
-        self.port = 6379
-        self.db = 0
-        self.expire = 0
-        self.clientid = '1'
-        self.netslave = 'http://localhost:8085'
-        self.webaddr = '0.0.0.0'
-        self.webport = 8088
-        self.webroot = 'wolfui'
+        self.defaults = {'loglevel': 'INFO', 'interval': 3600, 'clientid': 1, 'descr': '', 'netslave': 'http://localhost:8085', 'webaddr': '0.0.0.0', 'webport': 8888, 'webroot': 'wolfui'}
+        for k, v in self.defaults.items():
+            setattr(self, k, v)
+        self.installed = True
         super(WConfig, self).__init__()
 
     def read(self, filename):
         logger.info('%s reading configuration file %s' % (__title__, filename))
         if not os.path.isfile(filename):
             logger.error('Configuration file %s does not exists, using default settings' % filename)
+            self.create()
         try:
             super(WConfig, self).read(filename)
         except (configparser.ParsingError, configparser.DuplicateSectionError, configparser.DuplicateOptionError) as e:
@@ -224,14 +276,11 @@ class WConfig(configparser.ConfigParser):
         self.loglevel = self.get(__name__, 'loglevel', fallback = self.loglevel)
         self.interval = self.getint(__name__, 'interval', fallback = self.interval)
         self.clientid = self.get(__name__, 'clientid', fallback = self.clientid)
+        self.descr = self.get(__name__, 'descr', fallback = self.descr)
         self.netslave = self.get(__name__, 'netslave', fallback = self.netslave)
         self.webaddr = self.get(__name__, 'webaddr', fallback = self.webaddr)
         self.webport = self.getint(__name__, 'webport', fallback = self.webport)
         self.webroot = self.get(__name__, 'webroot', fallback = self.webroot)
-        if 'redis' in self.sections():
-            self.host = self.get('redis', 'host', fallback = self.host)
-            self.port = self.getint('redis', 'port', fallback = self.port)
-            self.db = self.getint('redis', 'db', fallback = self.db)
         logger.info('%s processing interval %s seconds' % (__title__, self.interval))
         logger.info('%s network configuration daemon at %s' % (__title__, self.netslave))
         logger.info('%s web configuration at %s:%d' % (__title__, self.webaddr, self.webport))
@@ -240,6 +289,12 @@ class WConfig(configparser.ConfigParser):
         logger.info('%s writing configuration file %s' % (__title__, filename))
         with open(filename, 'w') as file:
             super(WConfig, self).write(file)
+
+    def create(self):
+        self.installed = False
+        self.add_section(__name__)
+        for key in self.defaults:
+            self.set(__name__, key, str(self.defaults[key]))
 
     def json(self, section=None):
         data = self._sections
@@ -259,32 +314,79 @@ class WConfig(configparser.ConfigParser):
                 valid = sep.join(enum.keys())
             raise ValueError('%s invalid value for %s; valid options are: %s' % (str(e), option, valid))
 
+class WInfluxDB():
+
+    def __init__(self):
+        self.setup()
+
+    def setup(self):
+        self.configured = False
+        section = 'influxdb'
+        if section not in config.sections():
+            logger.info('No InfluxDB configured: alerting and webUI graph/export of measures not available.')
+            return
+        self.host = config.get(section, 'host', fallback = 'localhost')
+        self.port = config.getint(section, 'port', fallback = '8086')
+        self.db = config.get(section, 'db', fallback = 'wolf')
+        self.username = config.get(section, 'username', fallback = 'root')
+        self.password = config.get(section, 'password', fallback = 'root')
+        self.ssl = config.getboolean(section, 'ssl', fallback = False)
+
+        self.client = InfluxDBClient(host=self.host, port=self.port, username=self.username, password=self.password, ssl=self.ssl)
+        logger.info('InfluxDB connection: %s:%d db "%s"' % (self.host, self.port, self.db))
+        self.client.switch_database(self.db)
+        self.configured = True
+
+    def query(self, query):
+        if not self.configured:
+            return []
+        try:
+            logger.debug('InfluxDB host %s:%d query: %s' % (self.host, self.port, query))
+            results = self.client.query(query)
+        except (ConnectionError, InfluxDBClientError, InfluxDBServerError) as e:
+            logger.error('InfluxDB host %s:%d cannot read: %s' % (self.host, self.port, str(e)))
+            return []
+        return results
+
+    def write_points(self, points, **kwargs):
+        try:
+            self.client.write_points(points, **kwargs)
+        except (ConnectionError, InfluxDBClientError, InfluxDBServerError) as e:
+            logger.error('InfluxDB host %s:%d cannot write: %s' % (self.host, self.port, str(e)))
+            return False
+        return True
+
+
 class WApp():
 
     def __init__(self):
         self.__threads = {}
-        self.__plugins_in = []
-        self.__plugins_out = []
+        self.__plugins_field = {}
+        self.__plugins_cloud = {}
+        self.queue = queue.Queue()
         self.setup()
 
     def setup(self):
+        if not config.installed:
+            self.update(True)
+
         self.__wait_threads()
 
-        for plugin in self.__plugins_in:
+        for plugin in self.__plugins_field:
             self.__call_method(plugin, 'stop')
-        for plugin in self.__plugins_out:
+        for plugin in self.__plugins_cloud:
             self.__call_method(plugin, 'stop')
-        self.__plugins_in = []
-        self.__plugins_out = []
+        self.__plugins_field = {}
+        self.__plugins_cloud = {}
 
         path = os.path.join(os.getcwd(), __name__, 'plugins')
         logger.debug('%s plugins path %s' % (__title__, path))
-        modules_in = pkgutil.iter_modules(path = [os.path.join(path, 'in')])
-        modules_out = pkgutil.iter_modules(path = [os.path.join(path, 'out')])
-        for loader, name, ispkg in modules_in:
-            logger.info('Loading input plugin %s' % name)
+        modules_field = pkgutil.iter_modules(path = [os.path.join(path, 'field')])
+        modules_cloud = pkgutil.iter_modules(path = [os.path.join(path, 'cloud')])
+        for loader, name, ispkg in modules_field:
+            logger.info('Loading field plugin %s' % name)
             try:
-                loaded_mod = __import__('wolf.plugins.in.' + name, fromlist=[name])
+                loaded_mod = __import__('wolf.plugins.field.%s' % name, fromlist=[name])
                 loaded_mod.cache = cache
                 loaded_mod.config = config
                 loaded_mod.logger = logger
@@ -302,7 +404,7 @@ class WApp():
                             logger.warning('%s administratively disabled' % section)
                             continue
                         try:
-                            self.__plugins_in.append(loaded_class(section))
+                            self.__plugins_field[section] = loaded_class(section)
                         except (configparser.NoOptionError, FileNotFoundError, ValueError) as e:
                             logger.error('Plugin %s poorly configured: %s' % (section, str(e)))
                             logger.warning('Plugin %s disabled' % section)
@@ -310,13 +412,15 @@ class WApp():
                 logger.debug('Section %s not found in configuration' % name)
                 logger.info('Plugin %s disabled: not configured' % name)
         cache.queues = []
-        for loader, name, ispkg in modules_out:
-            logger.info('Loading output plugin %s' % name)
+        for loader, name, ispkg in modules_cloud:
+            logger.info('Loading cloud plugin %s' % name)
             try:
-                loaded_mod = __import__('wolf.plugins.out.' + name, fromlist=[name])
+                loaded_mod = __import__('wolf.plugins.cloud.%s' % name, fromlist=[name])
                 loaded_mod.cache = cache
                 loaded_mod.config = config
+                loaded_mod.influx = influx
                 loaded_mod.logger = logger
+                loaded_mod.queue = self.queue
             except SyntaxError as e:
                 logger.warning('Plugin %s disabled: %s' % (name, str(e)))
                 continue
@@ -328,15 +432,15 @@ class WApp():
                 continue
             loaded_class = getattr(loaded_mod, name)
             try:
-                self.__plugins_out.append(loaded_class(name))
+                self.__plugins_cloud[name] = loaded_class(name)
                 cache.queues.append(name)
             except (configparser.NoOptionError, FileNotFoundError, ValueError) as e:
                 logger.error('Plugin poorly configured: %s' % str(e))
                 logger.warning('Plugin %s disabled' % name)
-        if not len(self.__plugins_in):
-            logger.critical('No input plugins enabled!')
-        if not len(self.__plugins_out):
-            logger.critical('No output plugins enabled!')
+        if not len(self.__plugins_field):
+            logger.critical('No field plugins enabled!')
+        if not len(self.__plugins_cloud):
+            logger.critical('No cloud plugins enabled!')
         schedule.clear()
         interval = config.interval
         if config.interval >= 60:
@@ -347,6 +451,7 @@ class WApp():
     def update(self, force=False):
         update = WWebUpdate()
         if update.update(force=force):
+            config.write(os.path.join(config.path, '%s.ini' % __package__))
             logger.info('%s updated, exiting and waiting systemd restart...' % __title__)
             self.__wait_threads()
             os._exit(0)
@@ -358,10 +463,13 @@ class WApp():
                 if threaded:
                     thread = threading.Thread(target=method, name=plugin.name)
                     thread.start()
+                    return thread
                 else:
-                    method()
+                    return method()
 
     def run(self):
+        thread = threading.Thread(target=self.worker, name='worker')
+        thread.start()
         self.once()
         self.periodic()
         while True:
@@ -369,23 +477,27 @@ class WApp():
             time.sleep(1)
 
     def once(self):
-        for plugin in self.__plugins_out:
+        for plugin_id in self.__plugins_cloud:
+            plugin = self.__plugins_cloud[plugin_id]
             self.__call_method(plugin, 'post_config', True)
-        for plugin in self.__plugins_in:
+        for plugin_id in self.__plugins_field:
+            plugin = self.__plugins_field[plugin_id]
             self.__call_method(plugin, 'run', True)
 
     def periodic(self):
-        if not len(self.__plugins_in) or not len(self.__plugins_out):
+        if not len(self.__plugins_field) or not len(self.__plugins_cloud):
             return
         self.__wait_minute()
         logger.debug('%s periodic threads running' % __title__)
         self.__threads = {}
-        for plugin in self.__plugins_in:
-            self.__threads[plugin] = IWThread(plugin)
-            self.__threads[plugin].start()
-        for plugin in self.__plugins_out:
-            self.__threads[plugin] = OWThread(plugin)
-            self.__threads[plugin].start()
+        for plugin_id in self.__plugins_field:
+            plugin = self.__plugins_field[plugin_id]
+            self.__threads[plugin_id] = WFieldThread(plugin)
+            self.__threads[plugin_id].start()
+        for plugin_id in self.__plugins_cloud:
+            plugin = self.__plugins_cloud[plugin_id]
+            self.__threads[plugin_id] = WCloudThread(plugin)
+            self.__threads[plugin_id].start()
         self.__wait_threads()
         logger.debug('%s periodic threads ended' % __title__)
 
@@ -408,7 +520,24 @@ class WApp():
         ut = time.time()
         time.sleep (60 - ut % 60)
 
-class IWThread(threading.Thread):
+    def worker(self):
+        while True:
+            data = self.queue.get()
+            meta = cache.load_meta(client_id=data.get('client_id'), device_id=data.get('device_id'), measure_id=data.get('measure_id'))
+            try:
+                plugin_id = meta[0].get('plugin_id')
+                measure_id = meta[0].get('measure_id')
+                value = data.get('value')
+                if plugin_id in self.__plugins_field:
+                    plugin = self.__plugins_field[plugin_id]
+                    if hasattr(plugin, 'write'):
+                        plugin.write(measure_id, value)
+            except KeyError as e:
+                logger.error('Invalid message received, missing %s' % str(e))
+            except IndexError:
+                logger.warning('Invalid client_id=%s device_id=%s measure_id=%s' % (data.get('client_id'), data.get('device_id'), data.get('measure_id')))
+
+class WFieldThread(threading.Thread):
 
     def __init__(self, plugin):
         threading.Thread.__init__(self)
@@ -424,7 +553,7 @@ class IWThread(threading.Thread):
         cache.store(data)
         logger.debug('Plugin %s polling thread ended' % plugin.name)
 
-class OWThread(threading.Thread):
+class WCloudThread(threading.Thread):
 
     def __init__(self, plugin):
         threading.Thread.__init__(self)
@@ -436,7 +565,6 @@ class OWThread(threading.Thread):
         logger.debug('Plugin %s thread started' % plugin.name)
         cache.load(plugin.name, plugin.post)
         logger.debug('Plugin %s thread ended' % plugin.name)
-
 
 # Signals handlers
 
@@ -461,7 +589,7 @@ signal.signal(signal.SIGINT, terminate)
 
 def main(argv=None):
 
-    global app, cache, config, logger, webm
+    global app, cache, config, influx, logger
 
     # Logging setup
     logging.setLoggerClass(WLogger)
@@ -476,13 +604,22 @@ def main(argv=None):
     # Logging level setup
     logger.setup()
 
+    # self install missing dependencies
+    if toupdate:
+        logger.warning('%s missing modules, starting self update...' % __title__)
+        update = WWebUpdate()
+        update.update(force=True)
+        os._exit(0)
+
     # Redis db backend
     cache = WCache()
 
+    # InfluxDB backend
+    influx = WInfluxDB()
+
     app = WApp()
     webconfig = WWebConfig()
-    webconfig.run()
-    webm = WWebMeasures()
+    webconfig.start()
     app.run()
 
 if __name__== "__main__":

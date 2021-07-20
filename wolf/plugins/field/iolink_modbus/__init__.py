@@ -47,30 +47,25 @@ class iolink_modbus():
         if not self.client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             return False
-        if self.xport < 4:
-            result = self.__mbread(199, 1)
-        else:
-            result = self.__mbread(299, 1)
-        nc = result.registers[0] & 0xff
-        invalid = result.registers[0] >> 8
-        if self.xport & nc:
+        result = self.__mbread(self.xport * 1000 + 1, 1)
+        pqi = result.registers[0] & 0xff
+        if (pqi & 2):
             logger.error("Modbus IO-Link device %s port %d: device not connected" % (self.host, self.xport))
             return None
-        if self.xport & invalid:
+        if (pqi & 4):
             logger.error("Modbus IO-Link device %s port %d: data invalid" % (self.host, self.xport))
             return None
         result = self.__mbread(8998, 1)
-        length = (result.registers[0] & 0xff)
+        length = (1 << (result.registers[0] & 0xff) + 1)
         result = self.__mbread(8999, 1)
-        swap = result.registers[0]
+        swap = result.registers[0] & 0xff
+        # Some version of firmware requires to begin reading from 1001, not 1002
         result = self.__mbread(self.xport * 1000 + 1, length + 1)
         if not hasattr(result, 'registers'):
             return None
         registers = result.registers[-length:]
-        registers.reverse()
         self.client.close()
-        bsum = reduce(lambda x, y: (0, x[1] + (y[1] << 16 * y[0])), enumerate(registers))
-        barr = bitstring.BitArray(hex=hex(bsum[1]))
+        barr = bitstring.BitArray(struct.pack('>%dH' % length, *registers))
         ut = time.time()
         measures = {}
         for row in self.mapping:
@@ -82,16 +77,16 @@ class iolink_modbus():
             try:
                 # bool
                 if datatype == 'c':
-                    value = barr[-bitoffset]
+                    value = barr[bitoffset]
                 # int8, int16, int32
                 if datatype in ['b', 'h', 'i']:
-                    value = barr[-bitoffset-bitlenght:-bitoffset].int
+                    value = barr[bitoffset:bitoffset+bitlenght].int
                 # uint8, uint16, uint32
                 if datatype in ['B', 'H', 'I']:
-                    value = barr[-bitoffset-bitlenght:-bitoffset].uint
+                    value = barr[bitoffset:bitoffset+bitlenght].uint
                 # float (ieee754)
                 elif datatype == 'f':
-                    value = barr[-bitoffset-bitlenght:-bitoffset].float
+                    value = barr[bitoffset:bitoffset+bitlenght].float
             except bitstring.InterpretError:
                 logger.error("Error reading Modbus IO-Link device %s port %d %s" % (self.host, self.xport, name))
                 return None
@@ -101,7 +96,7 @@ class iolink_modbus():
             if datatype == 'c':
                 measures[name] = value
             else:
-                measures[name] = round(value * scale, 14) + offset
+                measures[name] = round(value * scale, 8) + offset
             logger.debug('Modbus IO-Link device %s port %d %s %s' % (self.host, self.xport, measures[name], unit))
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
         return data

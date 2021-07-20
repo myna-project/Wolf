@@ -1,22 +1,21 @@
 # Wolf
 Wolf is a lightweight and modular IoT gateway written in Python.
-Wolf receives or retrieves data, depending on the protocol used, from various industrial electronic devices and then stores it into InfluxDB and/or sends it to other Information Systems through the output plugins.
+Wolf receives or retrieves data, depending on the protocol used, from various industrial electronic devices and then stores it into InfluxDB and/or sends it to other Information Systems through the cloud plugins.
 Wolf uses Redis to implement caching and data persistence. Wolf also exposes REST services to get, set or update the configuration and to retrieve the measures data from InfluxDB, these REST services are used by [WolfUI](https://github.com/myna-project/WolfUI) to provide the web based graphical interface. 
 Wolf design is lightweight to run low performance environments such as embedded systems.
 ### Supported plugins
-Input plugins:
-* AMQP – JSON or XML
+Field plugins:
+* AMQP JSON, XML
 * EnOcean
-* IO-Link - JSON
-* Modbus RTU
-* Modbus TCP
+* IO-Link IFM IoT JSON, Modbus
+* Modbus RTU, TCP
 * MQTT – JSON, XML or raw data format
 * TP-Link Smart Plugs
-Output plugins:
+Cloud plugins:
 * AMQP
 * InfluxDB
-* [IEnergyDa](https://github.com/myna-project/IEnergyDa) MQTT
-* [IEnergyDa](https://github.com/myna-project/IEnergyDa) REST
+* [Togo HTTP/REST](https://github.com/myna-project/Togo) MQTT
+* [Togo MQTT](https://github.com/myna-project/Togo) REST
 ### Installation requirements
 Wolf is compatible with **python3** (developed and tested with **3.7**). With **2.7** it "might works".
 Wolf requires the following python modules:
@@ -54,6 +53,6 @@ NB: Some modules aren't available as distro packages, so they can be installed f
 Wolf relies on [systemd](https://github.com/systemd/systemd) to behave like a daemon and restart in case of failures. The systemd unit for Jackal is provided. Our reference distro is **Debian**, anyway the same results can be achieved with other service managers such as [supervisor](https://github.com/Supervisor/supervisor).
 ### Plugins development
 Wolf architecture is modular and through for rapid development of new plugins. Wolf searches and loads plugins in the plugins directory and use them if they are configured in the ini configuration file.
-There are input plugins that read field devices, output plugins that store/send data anywhere han been configured. There may be multiple instances of input plugins (eg. modbus_tcp.1, modbus_tcp.2, etc.).
-Input plugins are classes with a **run()** method to launch one times tasks (eg. listening threads), **poll()** to periodically poll data from devices, **stop()** to stop any background thread started with run().
-Output plugins are classes with a **post()** method to send data, **post_config()** to send configuration (ontology of configured input devices).
+There are field plugins that read field devices, cloud plugins that store/send data anywhere han been configured. There may be multiple instances of field plugins (eg. modbus_tcp.1, modbus_tcp.2, etc.).
+Field plugins are classes with a **run()** method to launch one times tasks (eg. listening threads), **poll()** to periodically poll data from devices, **stop()** to stop any background thread started with run(), **write()** to write to field devices.
+Cloud plugins are classes with a **post()** method to send data, **post_config()** to send configuration (ontology of configured field devices).

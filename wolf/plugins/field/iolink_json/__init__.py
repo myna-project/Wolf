@@ -54,16 +54,16 @@ class iolink_json():
             try:
                 # bool
                 if datatype == 'c':
-                    value = barr[-bitoffset]
+                    value = barr[bitoffset]
                 # int8, int16, int32
                 if datatype in ['b', 'h', 'i']:
-                    value = barr[-bitoffset-bitlenght:-bitoffset].int
+                    value = barr[bitoffset:bitoffset+bitlenght].int
                 # uint8, uint16, uint32
                 if datatype in ['B', 'H', 'I']:
-                    value = barr[-bitoffset-bitlenght:-bitoffset].uint
+                    value = barr[bitoffset:bitoffset+bitlenght].uint
                 # float (ieee754)
                 elif datatype == 'f':
-                    value = barr[-bitoffset-bitlenght:-bitoffset].float
+                    value = barr[bitoffset:bitoffset+bitlenght].float
             except bitstring.InterpretError:
                 logger.error("Error reading IO-Link device %s port %d %s" % (self.url, self.xport, name))
                 return None
@@ -73,7 +73,7 @@ class iolink_json():
             if datatype == 'c':
                 measures[name] = value
             else:
-                measures[name] = round(value * scale, 14) + offset
+                measures[name] = round(value * scale, 8) + offset
             logger.debug('IO-Link device %s port %d %s %s %s' % (self.url, self.xport, measures[name], unit))
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
         return data

@@ -1,5 +1,5 @@
 [Unit]
-Description=IEnergyDa Wolf IoT gateway systemd network configuration
+Description=Wolf IoT gateway systemd network configuration
 After=syslog.target
 
 [Service]

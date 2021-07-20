@@ -19,14 +19,20 @@ class AccessLog(object):
             request.environ.get('SERVER_PROTOCOL'), response.status_code, response.content_length))
         return ret
 
-class WWebConfig():
+class WWebConfig(threading.Thread):
+
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.name = 'webconfig'
 
     def run(self):
-        wolf.logger.debug('Listening on %s:%s' % (wolf.config.webaddr, wolf.config.webport))
-        thread = threading.Thread(target=run, name='webconfig', kwargs=dict(host = wolf.config.webaddr, port = wolf.config.webport, quiet=True,  app=AccessLog(app())))
-        thread.start()
-        wolf.logger.debug('Proxying /net to %s' % wolf.config.netslave)
-        mount('/net', HostProxy(wolf.config.netslave))
+        try:
+            wolf.logger.debug('Listening on %s:%s' % (wolf.config.webaddr, wolf.config.webport))
+            run(host = wolf.config.webaddr, port = wolf.config.webport, quiet=True,  app=AccessLog(app()))
+            wolf.logger.debug('Proxying /net to %s' % wolf.config.netslave)
+            mount('/net', HostProxy(wolf.config.netslave))
+        except OSError as e:
+            wolf.logger.error('Cannot start %s: %s' % (self.name, str(e)))
 
     @hook('after_request')
     def common_headers():
@@ -52,15 +58,15 @@ class WWebConfig():
     def plugins_available():
         path = os.path.join(os.getcwd(), __package__, 'plugins')
         wolf.logger.debug('%s plugins path %s' % (__package__, path))
-        modules_in = pkgutil.iter_modules(path = [os.path.join(path, 'in')])
-        modules_out = pkgutil.iter_modules(path = [os.path.join(path, 'out')])
-        plugins_in = []
-        plugins_out = []
-        for loader, name, ispkg in modules_in:
-            plugins_in.append(name)
-        for loader, name, ispkg in modules_out:
-            plugins_out.append(name)
-        return json.dumps({'plugins': [{'in': plugins_in}, {'out': plugins_out}]})
+        modules_field = pkgutil.iter_modules(path = [os.path.join(path, 'field')])
+        modules_cloud = pkgutil.iter_modules(path = [os.path.join(path, 'cloud')])
+        plugins_field = []
+        plugins_cloud = []
+        for loader, name, ispkg in modules_field:
+            plugins_field.append(name)
+        for loader, name, ispkg in modules_cloud:
+            plugins_cloud.append(name)
+        return json.dumps({'plugins': [{'field': plugins_field}, {'cloud': plugins_cloud}]})
 
     @route('/config/sections', method='GET')
     def config_redis():

@@ -36,10 +36,18 @@ class mqtt_json():
         cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
 
     def on_connect(self, client, userdata, flags, rc):
-        logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
+        if rc != 0:
+            logger.warn("Connected to MQTT broker %s result code %d" % (self.host, rc))
+        else:
+            logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
+            self.client.subscribe(self.topic, qos=self.qos)
+            logger.debug('Subscribed to topic "%s" QoS %d' % (self.topic, self.qos))
 
     def on_disconnect(self, client, userdata, rc=0):
-        logger.warn("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
+        if rc != 0:
+            logger.warn("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
+        else:
+            logger.debug("Disconnected from MQTT broker %s result code %d" % (self.host, rc))
 
     def on_message(self, client, userdata, message):
         logger.debug('Plugin %s broker %s topic "%s" QoS %s message "%s"' % (self.name, self.host, message.topic, message.qos, message.payload.decode("utf-8")))
@@ -79,6 +87,9 @@ class mqtt_json():
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
         cache.store(data)
 
+    def on_publish(self, client, userdata, mid):
+        logger.debug("Published message %d by MQTT broker %s" % (mid, self.host))
+
     def run(self):
         logger.info("MQTT broker %s:%d" % (self.host, self.port))
 
@@ -86,6 +97,7 @@ class mqtt_json():
         self.client.on_message=self.on_message
         self.client.on_connect=self.on_connect
         self.client.on_disconnect=self.on_disconnect
+        self.client.on_disconnect=self.on_publish
 
         if self.tlsenable:
             logger.info("MQTT TLS version: %s verify: %s CA certificate: %s" % (self.tlsversion, self.tlsverify, self.cacert))
@@ -108,8 +120,6 @@ class mqtt_json():
         self.client.loop_start()
         # Workaround for setting thread name coherent with plugin's thread name
         self.client._thread.name = self.name
-        self.client.subscribe(self.topic, qos=self.qos)
-        logger.debug('Subscribed to topic "%s" QoS %d' % (self.topic, self.qos))
 
     def stop(self):
         self.client.loop_stop()
@@ -121,6 +131,9 @@ class mqtt_json():
         if len(row):
             (name, descr, unit, datatype, rw, scale, offset, jsonpath) = row[0]
             (rc, mid) = self.client.publish(topic, payload=value, qos=self.qos)
-            logger.debug("Published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, self.qos, rc, mid, value))
+            if rc:
+                logger.warn("Not published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, self.qos, rc, mid, value))
+            else:
+                logger.debug("Published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, self.qos, rc, mid, value))
             return not rc
         return False
