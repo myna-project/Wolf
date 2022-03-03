@@ -24,6 +24,6 @@ class influxdb():
                     continue
                 point = self.__point(data.get('ts'), client_id, device_id, measure_id, float(data.get('measures').get(measure_id)))
                 points.append(point)
-            except IndexError:
+            except (IndexError, TypeError):
                 pass
         return influx.write_points(points, protocol='line', time_precision='s')

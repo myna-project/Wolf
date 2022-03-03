@@ -67,7 +67,7 @@ class amqp_json():
                     logger.warn('Invalid timestamp %s, defaulting to current time' % value)
                 continue
             if datatype not in ('c', 's'):
-                value = round(value * scale, 14) + offset
+                value = round(value * scale, 8) + offset
             measures[name] = value
             logger.debug('AMQP broker: %s routing key: %s QoS: %s measure: %s value: %s %s' % (self.host, self.key, self.qos, name, value, unit))
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}

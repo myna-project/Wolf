@@ -4,7 +4,7 @@ import time
 from pymodbus.client.sync import ModbusTcpClient, ModbusUdpClient
 from pymodbus.constants import Endian
 from pymodbus.exceptions import ConnectionException
-from pymodbus.payload import BinaryPayloadDecoder
+from pymodbus.payload import BinaryPayloadDecoder, BinaryPayloadBuilder
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.transaction import ModbusRtuFramer, ModbusAsciiFramer, ModbusBinaryFramer, ModbusSocketFramer
 import re
@@ -31,8 +31,6 @@ class qeed_tcp():
         self.port = config.getint(self.name, 'port', fallback = 502)
         self.slaveid = config.getint(self.name, 'slaveid', fallback = 0)
         self.endian = config.getenum(self.name, 'endianity', enum=ModbusEndianity, fallback = 'little')
-        self.retries = config.getint(self.name, 'retries', fallback = 3)
-        self.backoff = config.getfloat(self.name, 'backoff', fallback = 0.3)
         self.timeout = config.getfloat(self.name, 'timeout', fallback = 3)
         csvfile = config.get(self.name, 'csvmap')
         csvmap = WCSVMap()
@@ -59,7 +57,8 @@ class qeed_tcp():
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0, 'c': 1}
         measures = {}
         self.__lacquire()
-        client = self.mbclient(host=self.host, port=self.port, retries=self.retries, backoff=self.backoff, timeout=self.timeout, framer=self.mbframer, retry_on_empty=True, retry_on_invalid=True)
+        time.sleep(0.1)
+        client = self.mbclient(host=self.host, port=self.port, timeout=self.timeout, framer=self.mbframer)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             self.__lrelease()
@@ -143,8 +142,8 @@ class qeed_tcp():
                 client.close()
                 self.__lrelease()
                 return None
-            measures[name] = round(value * scale, 14) + offset
-            logger.debug('Modbus bridge: %s slave: %s register: %s (%s) value: %s %s' % (self.host, self.slaveid, register, name, value, unit))
+            measures[name] = round(value * scale, 8) + offset
+            logger.debug('Modbus bridge: %s slave: %s register: %s (%s) value: %s %s' % (self.host, self.slaveid, register, name, measures[name], unit))
         client.close()
         self.__lrelease()
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
@@ -152,6 +151,7 @@ class qeed_tcp():
 
 def write(self, name, value):
         self.__lacquire()
+        time.sleep(0.1)
         client = self.mbclient(host=self.host, port=self.port, retries=self.retries, backoff=self.backoff, timeout=self.timeout, framer=self.mbframer, retry_on_empty=True, retry_on_invalid=True)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))

@@ -87,7 +87,8 @@ class mqtt():
         del data['ts']
         measures = []
         for measure in data['measures']:
-            measures.append({'measure_id': measure, 'value': data['measures'][measure]})
+            meta = cache.load_meta(client_id = data['client_id'], device_id = data['device_id'], measure_id = measure)[0]
+            measures.append({'measure_id': measure, 'value': data['measures'][measure], 'measure_unit': meta['measure_unit'], 'measure_type': meta['measure_type']})
         data['measures'] = measures
         (rc, mid) = self.client.publish(topic, payload=json.dumps(data), qos=self.qos, retain=self.retain)
         if rc:

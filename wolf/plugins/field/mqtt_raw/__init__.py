@@ -60,7 +60,7 @@ class mqtt_raw():
             if message.topic == topic:
                 value = payload
                 if datatype not in ('c', 's'):
-                    value = round(value * scale, 14) + offset
+                    value = round(value * scale, 8) + offset
                 measures[name] = value
                 ut = time.time()
                 data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}

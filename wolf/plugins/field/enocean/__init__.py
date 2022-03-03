@@ -68,7 +68,7 @@ class enocean():
                 if datatype in ('c', 's'):
                     value = packet.parsed[k]['value']
                 else:
-                    value = round(float(packet.parsed[k]['value']) * scale, 14) + offset
+                    value = round(float(packet.parsed[k]['value']) * scale, 8) + offset
                 unit = packet.parsed[k]['unit']
                 descr = packet.parsed[k]['description']
                 measures[k] = value

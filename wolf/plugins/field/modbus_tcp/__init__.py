@@ -27,8 +27,6 @@ class modbus_tcp():
         self.port = config.getint(self.name, 'port', fallback = 502)
         self.slaveid = config.getint(self.name, 'slaveid', fallback = 0)
         self.endian = config.getenum(self.name, 'endianity', enum=ModbusEndianity, fallback = 'little')
-        self.retries = config.getint(self.name, 'retries', fallback = 3)
-        self.backoff = config.getfloat(self.name, 'backoff', fallback = 0.3)
         self.timeout = config.getfloat(self.name, 'timeout', fallback = 3)
         csvfile = config.get(self.name, 'csvmap')
         csvmap = WCSVMap()
@@ -41,7 +39,7 @@ class modbus_tcp():
     def poll(self):
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0, 'c': 1}
         measures = {}
-        client = self.mbclient(host=self.host, port=self.port, retries=self.retries, backoff=self.backoff, timeout=self.timeout, framer=self.mbframer, retry_on_empty=True, retry_on_invalid=True)
+        client = self.mbclient(host=self.host, port=self.port, timeout=self.timeout, framer=self.mbframer)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             return None
@@ -123,7 +121,6 @@ class modbus_tcp():
             logger.debug('Modbus bridge: %s slave: %s register: %s (%s) value: %s %s' % (self.host, self.slaveid, register, name, value, unit))
         client.close()
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
-        print (data)
         return data
 
     def write(self, name, value):

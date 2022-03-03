@@ -3,7 +3,7 @@ import math
 from pymodbus.client.sync import ModbusSerialClient as ModbusClient
 from pymodbus.constants import Endian, Defaults
 from pymodbus.exceptions import ConnectionException
-from pymodbus.payload import BinaryPayloadDecoder
+from pymodbus.payload import BinaryPayloadDecoder, BinaryPayloadBuilder
 from pymodbus.pdu import ExceptionResponse
 import time
 import re
@@ -56,7 +56,7 @@ class modbus_rtu():
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0, 'c': 1}
         measures = {}
         self.__lacquire()
-        client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout, retry_on_empty=True, retry_on_invalid=True)
+        client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout)
         if not client.connect():
             logger.error("Cannot connect to device %s" % (self.port))
             self.__lrelease()
@@ -140,14 +140,14 @@ class modbus_rtu():
                 client.close()
                 self.__lrelease()
                 return None
-            measures[name] = round(value * scale, 14) + offset
-            logger.debug('Modbus device: %s slave: %s register: %s (%s) value: %s %s' % (self.port, self.slaveid, register, name, value, unit))
+            measures[name] = round(value * scale, 8) + offset
+            logger.debug('Modbus device: %s slave: %s register: %s (%s) value: %s %s' % (self.port, self.slaveid, register, name, measures[name], unit))
         client.close()
         self.__lrelease()
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
         return data
 
-def write(self, name, value):
+    def write(self, name, value):
         self.__lacquire()
         client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout, retry_on_empty=True, retry_on_invalid=True)
         if not client.connect():

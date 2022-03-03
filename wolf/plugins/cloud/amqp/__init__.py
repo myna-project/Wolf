@@ -59,7 +59,8 @@ class amqp():
         del data['ts']
         measures = []
         for measure in data['measures']:
-            measures.append({'measure_id': measure, 'value': data['measures'][measure]})
+            meta = cache.load_meta(client_id = data['client_id'], device_id = data['device_id'], measure_id = measure)[0]
+            measures.append({'measure_id': measure, 'value': data['measures'][measure], 'measure_unit': meta['measure_unit'], 'measure_type': meta['measure_type']})
         data['measures'] = measures
         self.channel.basic_publish(exchange='', routing_key=key, body=json.dumps(data))
         logger.debug("AMQP routing key: %s message: %s" % (key, json.dumps(data)))

@@ -126,7 +126,7 @@ class logo8():
             if value is None:
                 continue
             if datatype in ['b', 'B', 'h', 'H', 'i', 'I', 'q', 'Q', 'f', 'd']:
-                measures[name] = round(value * scale, 14) + offset
+                measures[name] = round(value * scale, 8) + offset
             else:
                 measures[name] = value
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}

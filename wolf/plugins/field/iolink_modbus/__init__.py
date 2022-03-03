@@ -43,7 +43,7 @@ class iolink_modbus():
         return result
 
     def poll(self):
-        self.client = ModbusTcpClient(host=self.host, port=self.port, timeout=self.timeout, retry_on_empty=True, retry_on_invalid=True)
+        self.client = ModbusTcpClient(host=self.host, port=self.port, timeout=self.timeout)
         if not self.client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             return False

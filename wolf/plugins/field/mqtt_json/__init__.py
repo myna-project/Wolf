@@ -81,7 +81,7 @@ class mqtt_json():
                     logger.warn('Invalid timestamp %s, defaulting to current time' % value)
                 continue
             if datatype not in ('c', 's'):
-                value = round(value * scale, 14) + offset
+                value = round(value * scale, 8) + offset
             measures[name] = value
             logger.debug('MQTT broker: %s topic: %s QoS: %s measure: %s value: %s %s' % (self.host, self.topic, self.qos, name, value, unit))
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
