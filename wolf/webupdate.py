@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import requests
 from requests.exceptions import ConnectionError, ConnectTimeout, HTTPError, Timeout, ReadTimeout
 import shutil
@@ -103,7 +104,7 @@ class WWebUpdate():
 
     def update(self, force=False):
         q = queue.Queue()
-        wufile = os.path.join(wolf.config.path, 'webupdate.json')
+        wufile = os.path.join(wolf.config.path, 'config', 'webupdate.json')
         wolf.logger.debug('Reading webupdate configuration %s' % wufile)
         try:
             with open(wufile) as infile:
@@ -116,11 +117,18 @@ class WWebUpdate():
             return
         # excludes disabled plugins
         self.__exclude.update(self.__plugs(wuconf.plugins, False))
-        undeps = self.__mods(wuconf.plugins, False)
+        notinst = self.__mods(wuconf.plugins, False)
+        inst = self.__mods(wuconf.plugins, True)
+        undeps = set([i for i in notinst if i not in inst])
         client = requests.session()
         for mod in wuconf.modules:
             # skip modules that are not required by disabled plugins
             if mod.module in undeps:
+                wolf.logger.info('Does not updating %s, plugins not enabled.' % mod.module)
+                continue
+            # skip freezed modules
+            if hasattr(mod, 'freeze') and mod.freeze:
+                wolf.logger.info('Does not updating %s, module freezed.' % mod.module)
                 continue
             try:
                 response = client.get('%s/%s/%s' % (self.api, mod.repository, mod.channel))
@@ -146,8 +154,8 @@ class WWebUpdate():
                 wolf.logger.error('In repository %s there aren\'t stable releases, cannot update %s!' % (mod.repository, mod.module))
                 continue
             name = gitlast.get('name') or gitlast.get('tag_name')
-            wolf.logger.debug('Repository %s (online version: %s installed version: %s)' % (mod.repository, name, mod.version))
-            if (name > mod.version) or force:
+            wolf.logger.debug('Repository %s (online version: %s installed version: %s)' % (mod.repository, re.sub('[A-Za-z]*\s*', '', name), re.sub('[A-Za-z]*\s*', '', mod.version)))
+            if (re.sub('[A-Za-z]*\s*', '', name) > re.sub('[A-Za-z]*\s*', '', mod.version)) or force:
                 wolf.logger.info('Updating %s from repository %s ...' % (mod.module, mod.repository))
                 url = gitlast.get('zipball_url')
                 wolf.logger.debug('Downloading %s' % url)

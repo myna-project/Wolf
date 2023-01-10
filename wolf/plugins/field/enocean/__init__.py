@@ -18,22 +18,23 @@ except ImportError:
 
 class enocean():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'port', 'type': 'string', 'required': True},
+            {'name': 'addr', 'type': 'string', 'required': True},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.wait = threading.Event()
         self.comm = None
         self.queue = queue.Queue()
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.port = config.get(self.name, 'port', fallback = None)
-        self.addr = config.get(self.name, 'addr')
-
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = []
-        self.mapping = csvmap.load(csvfile, WCSVType.Raw)
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Raw)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
 
     def decode(self, packet):
         ut = time.time()

@@ -9,18 +9,23 @@ from urllib.parse import urlparse
 
 class amqp():
 
+    params = [{'name': 'host', 'type': 'string', 'default': '127.0.0.1'},
+            {'name': 'port', 'type': 'int', 'default': 5672},
+            {'name': 'username', 'type': 'string', 'default': None},
+            {'name': 'password', 'type': 'string', 'default': None},
+            {'name': 'retries', 'type': 'int', 'default': 3},
+            {'name': 'timeout', 'type': 'int', 'default': 60},
+            {'name': 'vhost', 'type': 'string', 'default': '/'},
+            {'name': 'amqpurl', 'type': 'string', 'default': None},
+            {'name': 'key', 'type': 'string', 'default': None},
+            {'name': 'ssl', 'type': 'boolean', 'default': False},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
-        self.host = config.get(self.name, 'host', fallback = '127.0.0.1')
-        self.port = config.getint(self.name, 'port', fallback = 5672)
-        self.retries = config.getint(self.name, 'retries', fallback = 3)
-        self.timeout = config.getint(self.name, 'timeout', fallback = 60)
-        self.username = config.get(self.name, 'username', fallback = None)
-        self.password = config.get(self.name, 'password', fallback = None)
-        self.vhost = config.get(self.name, 'vhost', fallback = '/')
-        self.amqpurl = config.get(self.name, 'amqpurl', fallback = None)
-        self.key = config.get(self.name, 'key', fallback = None)
-        self.ssl = config.getboolean(self.name, 'ssl', fallback = False)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
 
         ssl_options = None
 

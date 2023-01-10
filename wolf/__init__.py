@@ -31,7 +31,7 @@ __status__      = 'Production'
 __summary__     = 'Wolf is a lightweight and modular IoT gateway.'
 __title__       = 'Wolf'
 __uri__         = 'https://github.com/myna-project/Wolf'
-__version__     = 'v1.5.5'
+__version__     = 'v1.6.1'
 
 import configparser
 from datetime import datetime
@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import msgpack
+from pathlib import Path
 import pkgutil
 import redis
 import schedule
@@ -103,7 +104,7 @@ class WCache():
 
     def setup(self):
         self.client_id = config.clientid
-        self.client_descr = config.descr
+        self.client_descr = config.description
         section = 'redis'
         if section in config.sections():
             self.host = config.get(section, 'host', fallback = self.host)
@@ -134,12 +135,12 @@ class WCache():
         clients = []
         keys = r.keys('clients:*')
         for key in keys:
-            clients.append(msgpack.unpackb(r.get(key), encoding='utf-8'))
+            clients.append(msgpack.unpackb(r.get(key)))
         client_id = kwargs.get('client_id')
         if client_id:
             clients = list(filter(lambda item: item.get('client_id') == client_id, clients))[0]
         return clients
-        
+
     def __ping(self):
         r = redis.Redis(connection_pool=self.pool)
         try:
@@ -159,24 +160,36 @@ class WCache():
         r = redis.Redis(connection_pool=self.pool)
         p = r.pipeline()
         p.multi()
-        key = 'data:%s:%s:last' % (data.get('client_id'), data.get('device_id'))
-        p.set(key, msgpack.packb(data))
         key = 'data:%s:%s:%s' % (data.get('client_id'), data.get('device_id'), int(data.get('ts')))
+        value = r.get(key)
+        if value:
+            last = msgpack.unpackb(value)
+            data['measures'] = {**data.get('measures'), **last.get('measures')}
         p.set(key, msgpack.packb(data))
         if self.expire:
             p.expire(key, self.expire * 86400)
         for queue in self.queues:
             p.sadd('queue:%s:%s' % (client_id, queue), key)
+        key = 'data:%s:%s:last' % (data.get('client_id'), data.get('device_id'))
+        p.set(key, msgpack.packb(data))
         p.execute()
 
-    def last(self, client_id, device_id):
+    def load_last(self, client_id, device_id):
         self.__ping()
         r = redis.Redis(connection_pool=self.pool)
         key = 'data:%s:%s:last' % (client_id, device_id)
         value = r.get(key)
         if not value:
             return {}
-        return msgpack.unpackb(value, encoding='utf-8')
+        return msgpack.unpackb(value)
+
+    def store_last(self, data):
+        if not data:
+            return
+        self.__ping()
+        r = redis.Redis(connection_pool=self.pool)
+        key = 'data:%s:%s:last' % (data.get('client_id'), data.get('device_id'))
+        r.set(key, msgpack.packb(data))
 
     def load(self, queue, callback):
         self.__ping()
@@ -191,7 +204,7 @@ class WCache():
                 p.srem('queue:%s:%s' % (client_id, queue), key)
                 p.execute()
                 continue
-            data = msgpack.unpackb(r.get(key), encoding='utf-8')
+            data = msgpack.unpackb(r.get(key))
             if callback(data):
                 # pop from current queue
                 p.srem('queue:%s:%s' % (client_id, queue), key)
@@ -217,7 +230,7 @@ class WCache():
         r = redis.Redis(connection_pool=self.pool)
         keys = r.keys('meta:*')
         for key in keys:
-            self.meta[tuple(key.decode().split(':')[1:])] = msgpack.unpackb(r.get(key), encoding='utf-8')
+            self.meta[tuple(key.decode().split(':')[1:])] = msgpack.unpackb(r.get(key))
         meta = list(self.meta.values())
         client_id = kwargs.get('client_id')
         device_id = kwargs.get('device_id')
@@ -257,7 +270,9 @@ class WCache():
 class WConfig(configparser.ConfigParser):
 
     def __init__(self):
-        self.defaults = {'loglevel': 'INFO', 'interval': 3600, 'clientid': 1, 'descr': '', 'netslave': 'http://localhost:8085', 'webaddr': '0.0.0.0', 'webport': 8888, 'webroot': 'wolfui'}
+        self.defaults = {'loglevel': 'INFO', 'interval': 3600, 'clientid': 1, 'description': '',
+            'webaddr': '0.0.0.0', 'webport': 8888, 'webroot': 'wolfui',
+            'username': 'admin', 'password': 'ISMvKXpXpadDiUoOSoAfww==', 'cors': '*'}
         for k, v in self.defaults.items():
             setattr(self, k, v)
         self.installed = True
@@ -276,13 +291,12 @@ class WConfig(configparser.ConfigParser):
         self.loglevel = self.get(__name__, 'loglevel', fallback = self.loglevel)
         self.interval = self.getint(__name__, 'interval', fallback = self.interval)
         self.clientid = self.get(__name__, 'clientid', fallback = self.clientid)
-        self.descr = self.get(__name__, 'descr', fallback = self.descr)
-        self.netslave = self.get(__name__, 'netslave', fallback = self.netslave)
+        self.description = self.get(__name__, 'description', fallback = self.description)
         self.webaddr = self.get(__name__, 'webaddr', fallback = self.webaddr)
         self.webport = self.getint(__name__, 'webport', fallback = self.webport)
         self.webroot = self.get(__name__, 'webroot', fallback = self.webroot)
+        self.cors = self.get(__name__, 'cors', fallback = self.cors)
         logger.info('%s processing interval %s seconds' % (__title__, self.interval))
-        logger.info('%s network configuration daemon at %s' % (__title__, self.netslave))
         logger.info('%s web configuration at %s:%d' % (__title__, self.webaddr, self.webport))
 
     def write(self, filename):
@@ -313,6 +327,46 @@ class WConfig(configparser.ConfigParser):
             else:
                 valid = sep.join(enum.keys())
             raise ValueError('%s invalid value for %s; valid options are: %s' % (str(e), option, valid))
+
+    def parse(self, section, params):
+        items = {}
+        for item in params:
+            param = type('new', (object,), item)
+            if not hasattr(param, 'name'):
+                raise ValueError('Wrong plugin default configuration: missing name')
+            if not hasattr(param, 'type'):
+                raise ValueError('Wrong plugin default configuration: missing type for %s' % param.name)
+            if (param.type not in ['string', 'int', 'float', 'boolean', 'enum']):
+                raise ValueError('Wrong plugin default configuration: wrong type for %s' % param.name)
+            if (param.type == 'string'):
+                if hasattr(param, 'default'):
+                    value = self.get(section, param.name, fallback = param.default)
+                else:
+                    value = self.get(section, param.name)
+            if (param.type == 'int'):
+                if hasattr(param, 'default'):
+                    value = self.getint(section, param.name, fallback = param.default)
+                else:
+                    value = self.getint(section, param.name)
+            if (param.type == 'float'):
+                if hasattr(param, 'default'):
+                    value = self.getfloat(section, param.name, fallback = param.default)
+                else:
+                    value = self.getfloat(section, param.name)
+            if (param.type == 'boolean'):
+                if hasattr(param, 'default'):
+                    value = self.getboolean(section, param.name, fallback = param.default)
+                else:
+                    value = self.getboolean(section, param.name)
+            if (param.type == 'enum'):
+                if not hasattr(param, 'enum'):
+                    raise ValueError('Wrong plugin default configuration: missing enum for %s' % param.name)
+                if hasattr(param, 'default'):
+                    value = self.getenum(section, param.name, fallback = param.default, enum = param.enum)
+                else:
+                    value = self.getenum(section, param.name, enum = param.enum)
+            items[param.name] = value
+        return items
 
 class WInfluxDB():
 
@@ -379,7 +433,7 @@ class WApp():
         self.__plugins_field = {}
         self.__plugins_cloud = {}
 
-        path = os.path.join(os.getcwd(), __name__, 'plugins')
+        path = os.path.join(config.path, __name__, 'plugins')
         logger.debug('%s plugins path %s' % (__title__, path))
         modules_field = pkgutil.iter_modules(path = [os.path.join(path, 'field')])
         modules_cloud = pkgutil.iter_modules(path = [os.path.join(path, 'cloud')])
@@ -451,7 +505,9 @@ class WApp():
     def update(self, force=False):
         update = WWebUpdate()
         if update.update(force=force):
-            config.write(os.path.join(config.path, '%s.ini' % __package__))
+            configfile = os.path.join(config.path, 'config', '%s.ini' % __package__)
+            os.rename(configfile, '%s.bak' % configfile)
+            config.write(configfile)
             logger.info('%s updated, exiting and waiting systemd restart...' % __title__)
             self.__wait_threads()
             os._exit(0)
@@ -532,6 +588,11 @@ class WApp():
                     plugin = self.__plugins_field[plugin_id]
                     if hasattr(plugin, 'write'):
                         plugin.write(measure_id, value)
+                    if hasattr(plugin, 'poll'):
+                        logger.debug('Plugin %s polling thread started' % plugin.name)
+                        data = plugin.poll()
+                        cache.store_last(data)
+                        logger.debug('Plugin %s polling thread ended' % plugin.name)
             except KeyError as e:
                 logger.error('Invalid message received, missing %s' % str(e))
             except IndexError:
@@ -570,7 +631,7 @@ class WCloudThread(threading.Thread):
 
 def sighup(signum, frame):
     logger.info("SIGHUP received, reloading configuration and plugins")
-    config.read(os.path.join(config.path, '%s.ini' % __name__))
+    config.read(os.path.join(config.path, 'config', '%s.ini' % __name__))
     logger.setup()
     cache.setup()
     app.setup()
@@ -598,8 +659,8 @@ def main(argv=None):
 
     # Check and read config file
     config = WConfig()
-    config.path = os.path.join(os.getcwd(), 'config')
-    config.read(os.path.join(config.path, '%s.ini' % __name__))
+    config.path = Path(__file__).parent.parent
+    config.read(os.path.join(config.path, 'config', '%s.ini' % __name__))
 
     # Logging level setup
     logger.setup()

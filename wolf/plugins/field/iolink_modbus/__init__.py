@@ -11,19 +11,29 @@ import struct
 
 class iolink_modbus():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'host', 'type': 'string', 'required': True},
+            {'name': 'port', 'type': 'int', 'default': 502, 'required': True},
+            {'name': 'xport', 'type': 'int', 'required': True},
+            {'name': 'timeout', 'type': 'float', 'default': 3, 'required': True},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.host = config.get(self.name, 'host')
-        self.port = config.getint(self.name, 'port', fallback = 502)
-        self.timeout = config.getfloat(self.name, 'timeout', fallback = 3)
-        self.xport = config.getint(self.name, 'xport')
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.Raw)
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Raw)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
+        self.excodes = {0x00: "Success", 0x01: "Illegal function code", 0x02: "Illegal data address", 0x03: "Illegal data value", 
+                        0x04: "Server device failure", 0x05: "Acknowledge", 0x06: "Server device busy", 0x07: "Negative acknowledge",
+                        0x08: "Memory parity error", 0x0A: "Gateway path unavailable", 0x0B: "Gateway target not responding",
+                        0xE0: "Timeout", 0xE1: "Invalid server", 0xE2: "CRC check error", 0xE3: "Function code mismatch", 
+                        0xE4: "Server ID mismatch", 0xE5: "Packet length error", 0xE6: "Wrong # of parameters", 0xE7: "Parameter out of bounds",
+                        0xE8: "Request queue full", 0xE9: "Illegal IP or port", 0xEA: "IP connection failed", 0xEB: "TCP header mismatch",
+                        0xEC: "Incomplete request", 0xED: "Invalid ASCII frame", 0xEE: "Invalid ASCII CRC", 0xEF: "Invalid ASCII character"}
 
     def __mbread(self, addr, length):
         try:
@@ -32,8 +42,8 @@ class iolink_modbus():
             logger.error("Error reading Modbus IO-Link device %s address %d" % (self.host, addr))
             self.client.close()
             return False
-        if type(result) == ExceptionResponse:
-            logger.error("Error reading Modbus IO-Link device %s address %d: %s" % (self.host, addr, result))
+        if isinstance(result, ExceptionResponse):
+            logger.error("Error reading Modbus IO-Link device %s address %d: %s" % (self.host, addr, self.excodes[result.exception_code]))
             self.client.close()
             return False
         if result.isError():
@@ -100,4 +110,3 @@ class iolink_modbus():
             logger.debug('Modbus IO-Link device %s port %d %s %s' % (self.host, self.xport, measures[name], unit))
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
         return data
-

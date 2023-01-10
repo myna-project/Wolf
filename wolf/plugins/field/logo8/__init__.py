@@ -9,20 +9,25 @@ locks = {}
 
 class logo8():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'host', 'type': 'string', 'required': True},
+            {'name': 'port', 'type': 'int', 'default': 102, 'required': True},
+            {'name': 'ltsap', 'type': 'int', 'required': True},
+            {'name': 'ctsap', 'type': 'int', 'required': True},
+            {'name': 'version', 'type': 'enum', 'default': 'logo8', 'enum': {'logo7': 'logo7', 'logo8': 'logo8'}, 'required': True},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.lock = threading.Lock()
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.host = config.get(self.name, 'host')
-        self.port = config.getint(self.name, 'port', fallback = 102)
-        self.ltsap = self.__str2tsap(config.get(self.name, 'ltsap'))
-        self.ctsap = self.__str2tsap(config.get(self.name, 'ctsap'))
-        self.version = config.getenum(self.name, 'version', enum={'logo7': 'logo7', 'logo8': 'logo8'}, fallback='logo8')
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.Raw)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.ltsap = self.__str2tsap(self.ltsap)
+        self.ctsap = self.__str2tsap(self.ctsap)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Raw)
 
         self.lam = [('I', 1024, 8), ('AI', 1032, 32), ('Q', 1064, 8), ('AQ', 1072, 32),
         ('M',  1104, 14), ('AM', 1118, 128), ('NI', 1246, 16), ('NAI', 1262, 128),
@@ -32,7 +37,7 @@ class logo8():
             ('M',  948, 4), ('AM', 952, 32), ('VD', 0, 980), ('VW', 0, 982), ('V', 0, 983)]
 
         self.__plc_validate()
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
 
         try:
             self.plc = s7.logo.Logo()

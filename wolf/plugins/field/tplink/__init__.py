@@ -3,19 +3,22 @@ from pyHS100 import SmartDevice, SmartPlug, SmartBulb
 
 class tplink():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'host', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.host = config.get(self.name, 'host')
-
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
         self.mapping = [['voltage', 'Voltage', 'mV', 'I', 0, 0.001, 0, 'voltage_mv'],
                    ['current', 'Current', 'mA', 'I', 0, 0.001, 0, 'current_ma'],
                    ['power', 'Power', 'mW', 'I', 0, 0.001, 0, 'power_mw'],
                    ['total', 'Total energy', 'Wh', 'I', 0, 0.001, 0, 'total_wh'],
                    ['relay', 'Relay state', '', 'c', 1, 1, 0, 'relay_state']]
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
 
     def poll(self):
         p = SmartPlug(self.host)
@@ -39,7 +42,7 @@ class tplink():
                 if key in realtime.keys():
                     value = realtime[key]
                     if datatype not in ('c', 's'):
-                        value = round(value * scale, 14) + offset
+                        value = round(value * scale, 8) + offset
                     measures[name] = value
                     logger.debug('Device: %s host: %s %s: %s' % (p.sys_info['model'], self.host, name, value))
         sys_info = dict(p.sys_info)

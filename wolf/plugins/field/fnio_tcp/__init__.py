@@ -5,25 +5,18 @@ from pymodbus.constants import Endian
 from pymodbus.exceptions import ConnectionException
 from pymodbus.payload import BinaryPayloadDecoder, BinaryPayloadBuilder
 from pymodbus.pdu import ExceptionResponse
-from pymodbus.transaction import ModbusRtuFramer, ModbusAsciiFramer, ModbusBinaryFramer, ModbusSocketFramer
 import time
-import re
 import struct
-
-ModbusProtocols = {'tcp': {'client': ModbusTcpClient, 'framer': ModbusSocketFramer},
-                   'udp': {'client': ModbusUdpClient, 'framer': ModbusSocketFramer},
-                   'rtutcp': {'client': ModbusTcpClient, 'framer': ModbusRtuFramer}}
 
 ModbusEndianity = {'little': Endian.Little, 'big': Endian.Big}
 
-class modbus_tcp():
+class fnio_tcp():
 
     params = [{'name': 'deviceid', 'type': 'string', 'required': True},
             {'name': 'host', 'type': 'string', 'required': True},
             {'name': 'port', 'type': 'int', 'default': 502, 'required': True},
             {'name': 'slaveid', 'type': 'int', 'default': 0, 'required': True},
             {'name': 'endianity', 'type': 'enum', 'default': 'little', 'enum': ModbusEndianity, 'required': True},
-            {'name': 'protocol', 'type': 'enum', 'default': 'tcp', 'enum': ModbusProtocols, 'required': True},
             {'name': 'timeout', 'type': 'float', 'default': 3, 'required': True},
             {'name': 'csvmap', 'type': 'string', 'required': True},
             {'name': 'description', 'type': 'string', 'default': ''},
@@ -44,59 +37,66 @@ class modbus_tcp():
                         0xE8: "Request queue full", 0xE9: "Illegal IP or port", 0xEA: "IP connection failed", 0xEB: "TCP header mismatch",
                         0xEC: "Incomplete request", 0xED: "Invalid ASCII frame", 0xEE: "Invalid ASCII CRC", 0xEF: "Invalid ASCII character"}
 
+    def __parse_row(self, row):
+        types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 'c': 1}
+        (name, descr, unit, datatype, rw, scale, offset, *address) = row
+        bit = 0
+        if len(address) > 1:
+            bit = int(address[1])
+        address = int(address[0])
+        rw = bool(rw)
+        scale = float(scale)
+        offset = float(offset)
+        length = types.get(datatype)
+        return (name, descr, unit, datatype, rw, scale, offset, address, bit, length)
+
     def poll(self):
-        types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0, 'c': 1}
         measures = {}
-        client = self.protocol['client'](host=self.host, port=self.port, timeout=self.timeout, framer=self.protocol['framer'])
+        client = ModbusTcpClient(host=self.host, port=self.port, timeout=self.timeout)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             return None
         ut = time.time()
-        for row in self.mapping:
-            (name, descr, unit, datatype, rw, scale, offset, register) = row
-            register = int(register)
-            scale = float(scale)
-            offset = float(offset)
-            length = types.get(datatype)
-            string = re.match(r'^s(\d*)$', datatype)
-            if string:
-                length = int(string.group(1)) >> 1
+        last = None
+        for row in sorted(filter(lambda x:x[3] == 'c', self.mapping), key=lambda x:x[7]):
+            (name, descr, unit, datatype, rw, scale, offset, address, bit, length) = self.__parse_row(row)
+            if address != last:
+                try:
+                    result = client.read_holding_registers(address, 1, unit=self.slaveid)
+                except ConnectionException as e:
+                    logger.error("Error reading bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, str(e)))
+                    client.close()
+                    return None
+                if isinstance(result, ExceptionResponse):
+                    logger.error("Error reading bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, self.excodes[result.exception_code]))
+                    client.close()
+                    return None
+                if result.isError():
+                    logger.error("Error reading bridge %s slave %d address %d" % (self.host, self.slaveid, address))
+                    client.close()
+                    return None
+            value = bool(result.registers[0] & (1 << bit))
+            measures[name] = value
+            logger.debug('Modbus bridge: %s slave: %s address: %d.%d (%s) value: %s' % (self.host, self.slaveid, address, bit, name, value))
+            last = address
+        for row in filter(lambda x:x[3] != 'c', self.mapping):
+            (name, descr, unit, datatype, rw, scale, offset, address, bit, length) = self.__parse_row(row)
             try:
-                if register > 40000:
-                    addr = register - 40001
-                    result = client.read_holding_registers(addr, length, unit=self.slaveid)
-                elif register > 30000:
-                    addr = register - 30001
-                    result = client.read_input_registers(addr, length, unit=self.slaveid)
-                elif register > 10000:
-                    addr = register - 10001
-                    result = client.read_discrete_inputs(addr, length, unit=self.slaveid)
-                else:
-                    addr = register - 1
-                    result = client.read_coils(addr, length, unit=self.slaveid)
+                result = client.read_holding_registers(address, length, unit=self.slaveid)
             except ConnectionException as e:
-                logger.error("Error reading bridge %s slave %d register %d: %s" % (self.host, self.slaveid, register, str(e)))
+                logger.error("Error reading bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, str(e)))
                 client.close()
                 return None
             if isinstance(result, ExceptionResponse):
-                logger.error("Error reading bridge %s slave %d register %d: %s" % (self.host, self.slaveid, register, self.excodes[result.exception_code]))
+                logger.error("Error reading bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, self.excodes[result.exception_code]))
                 client.close()
                 return None
             if result.isError():
-                logger.error("Error reading bridge %s slave %d register %d" % (self.host, self.slaveid, register))
+                logger.error("Error reading bridge %s slave %d address %d" % (self.host, self.slaveid, address))
                 client.close()
                 return None
-            if hasattr(result, 'bits'):
-                measures[name] = result.bits[0]
-                logger.debug('Modbus bridge: %s slave: %s register: %s (%s) value: %s' % (self.host, self.slaveid, register, name, result.bits[0]))
-                continue
             try:
                 decoder = BinaryPayloadDecoder.fromRegisters(result.registers, byteorder=Endian.Big, wordorder=self.endianity)
-                if string:
-                    value = decoder.decode_string(255).decode()
-                    measures[name] = value
-                    logger.debug('Modbus bridge: %s slave %s register %s (%s) value: %s' % (self.host, self.slaveid, register, name, measures[name]))
-                    continue
                 if datatype == 'b':
                     value = decoder.decode_8bit_int()
                 if datatype == 'B':
@@ -118,32 +118,51 @@ class modbus_tcp():
                 if datatype == 'd':
                     value = decoder.decode_64bit_float()
             except (AttributeError, ValueError, struct.error):
-                logger.error("Error reading bridge %s slave %d register %d" % (self.host, self.slaveid, register))
+                logger.error("Error reading bridge %s slave %d address %d" % (self.host, self.slaveid, address))
                 client.close()
                 return None
             if math.isnan(value) or type(value) == bool:
-                logger.error("Error reading bridge %s slave %d register %d" % (self.host, self.slaveid, register))
+                logger.error("Error reading bridge %s slave %d address %d" % (self.host, self.slaveid, address))
                 client.close()
                 return None
             measures[name] = round(value * scale, 14) + offset
-            logger.debug('Modbus bridge: %s slave: %s register: %s (%s) value: %s %s' % (self.host, self.slaveid, register, name, measures[name], unit))
+            logger.debug('Modbus bridge: %s slave: %s address: %s (%s) value: %s %s' % (self.host, self.slaveid, address, name, measures[name], unit))
         client.close()
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
         return data
 
     def write(self, name, value):
-        client = self.protocol['client'](host=self.host, port=self.port, timeout=self.timeout, framer=self.protocol['framer'])
+        client = ModbusTcpClient(host=self.host, port=self.port, timeout=self.timeout)
         if not client.connect():
             logger.error("Cannot connect to bridge %s" % (self.host))
             return False
         row = list(filter(lambda r: r[0] == name, self.mapping))
         if len(row):
-            (name, descr, unit, datatype, rw, scale, offset, register) = row[0]
+            (name, descr, unit, datatype, rw, scale, offset, address, bit) = self.__parse_row(row)
             if not rw:
-                logger.error("Error writing to bridge %s slave %d register %d: read only" % (self.host, self.slaveid, register))
+                logger.error("Error writing to bridge %s slave %d address %d: read only" % (self.host, self.slaveid, address))
                 client.close()
                 return False
-            register = int(register)
+            if datatype == 'c':
+                try:
+                    result = client.read_holding_registers(address, 1, unit=self.slaveid)
+                    r = result.registers[0]
+                except ConnectionException as e:
+                    logger.error("Error reading bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, str(e)))
+                    client.close()
+                    return None
+                r &= ~(1 << bit)
+                if value:
+                    r |= (1 << bit)
+                try:
+                    result = client.write_register(address, r, unit=self.slaveid)
+                except ConnectionException as e:
+                    logger.error("Error writing bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, str(e)))
+                    client.close()
+                    return None
+                logger.debug('Modbus bridge: %s slave: %s address: %d.%d (%s) value: %s' % (self.host, self.slaveid, address, bit, name, value))
+                client.close()
+                return True
             try:
                 builder = BinaryPayloadBuilder(byteorder=Endian.Big, wordorder=self.endianity)
                 if datatype == 'b':
@@ -166,35 +185,28 @@ class modbus_tcp():
                     builder.add_32bit_float(value)
                 if datatype == 'd':
                     builder.add_64bit_float(value)
-                if re.match( r'^s(\d*)$', datatype):
-                    builder.add_string(value)
                 registers = builder.to_registers()
             except (AttributeError, ValueError, struct.error) as e:
-                logger.error("Error writing to bridge %s slave %d register %d: %s" % (self.host, self.slaveid, register, str(e)))
+                logger.error("Error writing to bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, str(e)))
                 client.close()
                 return False
             try:
-                if register > 40000:
-                    addr = register - 40001
-                    if len(registers) > 1:
-                        result = client.write_registers(addr, registers, unit=self.slaveid)
-                    else:
-                        result = client.write_register(addr, value, unit=self.slaveid)
+                if len(registers) > 1:
+                    result = client.write_registers(address, registers, unit=self.slaveid)
                 else:
-                    addr = register - 1
-                    result = client.write_coil(addr, bool(value), unit=self.slaveid)
+                    result = client.write_register(address, value, unit=self.slaveid)
             except ConnectionException as e:
-                logger.error("Error writing to bridge %s slave %d register %d: %s" % (self.host, self.slaveid, register, str(e)))
+                logger.error("Error writing to bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, str(e)))
                 client.close()
                 return False
             if isinstance(result, ExceptionResponse):
-                logger.error("Error writing to bridge %s slave %d register %d: %s" % (self.host, self.slaveid, register, self.excodes[result.exception_code]))
+                logger.error("Error writing to bridge %s slave %d address %d: %s" % (self.host, self.slaveid, address, self.excodes[result.exception_code]))
                 client.close()
                 return False
             if result.isError():
-                logger.error("Error writing to bridge %s slave %d register %d" % (self.host, self.slaveid, register))
+                logger.error("Error writing to bridge %s slave %d address %d" % (self.host, self.slaveid, address))
                 client.close()
                 return False
-            logger.debug('Modbus bridge: %s slave: %s register: %s (%s) value: %s' % (self.host, self.slaveid, register, name, value))
+            logger.debug('Modbus bridge: %s slave: %s address: %s (%s) value: %s' % (self.host, self.slaveid, address, name, value))
         client.close()
         return True

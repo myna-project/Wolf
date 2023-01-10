@@ -13,22 +13,27 @@ TLSTransports = {'tcp': 'tcp', 'websockets': 'websockets'}
 
 class mqtt():
 
+    params = [{'name': 'host', 'type': 'string', 'default': '127.0.0.1', 'required': True},
+            {'name': 'port', 'type': 'int', 'default': 1883, 'required': True},
+            {'name': 'username', 'type': 'string', 'default': None},
+            {'name': 'password', 'type': 'string', 'default': None},
+            {'name': 'transport', 'type': 'enum', 'default': 'tcp', 'enum': TLSTransports, 'required': True},
+            {'name': 'protocol', 'type': 'enum', 'default': 'mqttv311', 'enum': MQProtocols, 'required': True},
+            {'name': 'keepalive', 'type': 'int', 'default': 60, 'required': True},
+            {'name': 'topic', 'type': 'string', 'required': True},
+            {'name': 'qos', 'type': 'int', 'default': 0, 'required': True},
+            {'name': 'retain', 'type': 'boolean', 'default': False},
+            {'name': 'cacert', 'type': 'string', 'default': None},
+            {'name': 'tlsenable', 'type': 'boolean', 'default': False},
+            {'name': 'tlsverify', 'type': 'boolean', 'default': True},
+            {'name': 'tlsversion', 'type': 'enum', 'default': 'tlsv1.0', 'enum': TLSVersions},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
-        self.host = config.get(self.name, 'host', fallback = '127.0.0.1')
-        self.port = config.getint(self.name, 'port', fallback = 1883)
-        self.username = config.get(self.name, 'username', fallback = None)
-        self.password = config.get(self.name, 'password', fallback = None)
-        self.transport = config.getenum(self.name, 'transport', enum=TLSTransports, fallback = 'tcp')
-        self.protocol = config.getenum(self.name, 'protocol', enum=MQProtocols, fallback = 'mqttv311')
-        self.keepalive = config.getint(self.name, 'keepalive', fallback = 60)
-        self.topic = config.get(self.name, 'topic')
-        self.qos = config.getint(self.name, 'qos', fallback = 0)
-        self.cacert = config.get(self.name, 'cacert', fallback = None)
-        self.tlsenable = config.getboolean(self.name, 'tlsenable', fallback = False)
-        self.tlsversion = config.getenum(self.name, 'tlsversion', enum=TLSVersions, fallback = 'tlsv1.2')
-        self.tlsverify = config.getboolean(self.name, 'tlsverify', fallback = True)
-        self.retain = config.getboolean(self.name, 'retain', fallback = False)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
         logger.info("MQTT broker %s:%d" % (self.host, self.port))
 
         self.client = paho.Client(transport=self.transport)

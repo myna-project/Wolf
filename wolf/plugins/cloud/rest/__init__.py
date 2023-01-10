@@ -11,18 +11,23 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class rest():
 
+    params = [{'name': 'baseurl', 'type': 'string', 'required': True},
+            {'name': 'username', 'type': 'string', 'default': None},
+            {'name': 'password', 'type': 'string', 'default': None},
+            {'name': 'retries', 'type': 'int', 'default': 3, 'required': True},
+            {'name': 'backoff', 'type': 'float', 'default': 0.3, 'required': True},
+            {'name': 'timeout', 'type': 'int', 'default': 30, 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
         self.__client = requests.session()
-        self.baseurl = config.get(self.name, 'baseurl', fallback = None)
-        self.username = config.get(self.name, 'username', fallback = None)
-        self.password = config.get(self.name, 'password', fallback = None)
-        self.retries = config.getint(self.name, 'retries', fallback = 3)
-        self.backoff = config.getfloat(self.name, 'backoff', fallback = 0.3)
-        self.timeout = config.getint(self.name, 'timeout', fallback = 30)
-        self.token = '%s/token' % self.baseurl
-        self.drain = '%s/organization/measures' % self.baseurl
-        self.config = '%s/organization/measures/config' % self.baseurl
+        self.tokenurl = '%s/token' % self.baseurl
+        self.drainurl = '%s/organization/measures' % self.baseurl
+        self.configurl = '%s/organization/measures/config' % self.baseurl
         self.__csrf = None
         self.__recursion = False
         self.proxies = {}
@@ -43,8 +48,8 @@ class rest():
 
     def __get_token(self):
         try:
-            response = self.__client.get(self.token, timeout=self.timeout, verify=False, allow_redirects=False, proxies=self.proxies)
-            logger.debug('GET %s' % self.token)
+            response = self.__client.get(self.tokenurl, timeout=self.timeout, verify=False, allow_redirects=False, proxies=self.proxies)
+            logger.debug('GET %s' % self.tokenurl)
         except (ConnectionError, ConnectTimeout, ReadTimeout) as e:
             logger.error (str(e))
             self.__client.cookies.clear()
@@ -105,7 +110,7 @@ class rest():
         for measure in data['measures']:
             measures.append({'measure_id': measure, 'value': data['measures'][measure]})
         data['measures'] = measures
-        response = self.__post(data, self.drain)
+        response = self.__post(data, self.drainurl)
         if response:
             status, text = response
             logger.info('POST client id: %s device id: %s timestamp: %s HTTP status code: %s %s' % (data['client_id'], data['device_id'], data['at'], status, text.splitlines()))
@@ -117,7 +122,7 @@ class rest():
 
     def post_config(self):
         data = cache.load_meta()
-        response = self.__post(data, self.config)
+        response = self.__post(data, self.configurl)
         if response:
             status, text = response
             logger.info('POST configuration HTTP status code: %s %s' % (status, text.splitlines()))

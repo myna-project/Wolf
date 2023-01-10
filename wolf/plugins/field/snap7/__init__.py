@@ -11,19 +11,22 @@ locks = {}
 
 class snap7():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'host', 'type': 'string', 'required': True},
+            {'name': 'port', 'type': 'int', 'default': 102, 'required': True},
+            {'name': 'slot', 'type': 'int', 'required': True},
+            {'name': 'rack', 'type': 'int', 'required': True},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.lock = threading.Lock()
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.host = config.get(self.name, 'host')
-        self.port = config.getint(self.name, 'port', fallback = 102)
-        self.slot = config.getint(self.name, 'slot')
-        self.rack = config.getint(self.name, 'rack')
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.Raw)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Raw)
 
         self.lam = [('%IB', 'PE', 1), ('%IW', 'PE', 2), ('%ID', 'PE', 4), ('%I', 'PE', 1),
         ('%QB', 'PA', 1), ('%QW', 'PA', 2), ('%QD', 'PA', 4), ('%Q', 'PA', 1), 
@@ -32,7 +35,7 @@ class snap7():
         ('DBB', 'DB', 1), ('DBW', 'DB', 2), ('DBD', 'DB', 4), ('DBX', 'DB', 1)] 
 
         self.__plc_validate()
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
 
         try:
             self.plc = s7.client.Client()
@@ -165,7 +168,7 @@ class snap7():
             if value is None:
                 continue
             if datatype in ['b', 'B', 'h', 'H', 'i', 'I', 'q', 'Q', 'f', 'd']:
-                measures[name] = round(value * scale, 14) + offset
+                measures[name] = round(value * scale, 8) + offset
             else:
                 measures[name] = value
         data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}

@@ -14,20 +14,30 @@ locks = {}
 
 class schneider_tcp():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'host', 'type': 'string', 'required': True},
+            {'name': 'port', 'type': 'int', 'default': 502, 'required': True},
+            {'name': 'slaveid', 'type': 'int', 'default': 0, 'required': True},
+            {'name': 'timeout', 'type': 'float', 'default': 3, 'required': True},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.lock = threading.Lock()
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.host = config.get(self.name, 'host')
-        self.port = config.getint(self.name, 'port', fallback = 502)
-        self.slaveid = config.getint(self.name, 'slaveid', fallback = 0)
-        self.timeout = config.getfloat(self.name, 'timeout', fallback = 3)
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.Modbus)
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Modbus)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
+        self.excodes = {0x00: "Success", 0x01: "Illegal function code", 0x02: "Illegal data address", 0x03: "Illegal data value", 
+                        0x04: "Server device failure", 0x05: "Acknowledge", 0x06: "Server device busy", 0x07: "Negative acknowledge",
+                        0x08: "Memory parity error", 0x0A: "Gateway path unavailable", 0x0B: "Gateway target not responding",
+                        0xE0: "Timeout", 0xE1: "Invalid server", 0xE2: "CRC check error", 0xE3: "Function code mismatch", 
+                        0xE4: "Server ID mismatch", 0xE5: "Packet length error", 0xE6: "Wrong # of parameters", 0xE7: "Parameter out of bounds",
+                        0xE8: "Request queue full", 0xE9: "Illegal IP or port", 0xEA: "IP connection failed", 0xEB: "TCP header mismatch",
+                        0xEC: "Incomplete request", 0xED: "Invalid ASCII frame", 0xEE: "Invalid ASCII CRC", 0xEF: "Invalid ASCII character"}
 
     def __lacquire(self):
         global locks
@@ -42,6 +52,19 @@ class schneider_tcp():
         self.lock.release()
         logger.debug("Plugin %s lock on %s released" % (self.name, self.host))
 
+    def __parse_row(self, row):
+        types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0, 'c': 1}
+        (name, descr, unit, datatype, rw, scale, offset, *address) = row
+        bit = 0
+        if len(address) > 1:
+            bit = int(address[1])
+        address = int(address[0])
+        rw = bool(rw)
+        scale = float(scale)
+        offset = float(offset)
+        length = types.get(datatype)
+        return (name, descr, unit, datatype, rw, scale, offset, address, bit, length)
+
     def poll(self):
         self.__lacquire()
         client = ModbusTcpClient(host=self.host, port=self.port, timeout=self.timeout)
@@ -51,25 +74,26 @@ class schneider_tcp():
             return None
         hr = {}
         r_off = 7
+        r_num = 100
         r_min = int(round(min(self.mapping, key=lambda x:x[r_off])[r_off], -2))
         r_max = int(round(max(self.mapping, key=lambda x:x[r_off])[r_off], -2))
         ut = time.time()
-        for r in range(r_min, r_max + 100, 100):
-            if list(filter(lambda x:((x[r_off] // 100) * 100) == r, self.mapping)):
+        for r in range(r_min, r_max + r_num, r_num):
+            if list(filter(lambda x:((x[r_off] // r_num) * r_num) == r, self.mapping)):
                 try:
-                    result = client.read_holding_registers(r - 1, 100, unit=self.slaveid)
+                    result = client.read_holding_registers(r - 1, r_num, unit=self.slaveid)
                 except ConnectionException as e:
-                    logger.error("Error reading bridge %s slave %d registers %d-%d: %s" % (self.host, self.slaveid, r, r + 100, str(e)))
+                    logger.error("Error reading bridge %s slave %d registers %d-%d: %s" % (self.host, self.slaveid, r, r + r_num, str(e)))
                     client.close()
                     self.__lrelease()
                     return None
-                if type(result) == ExceptionResponse:
-                    logger.error("Error reading bridge %s slave %d registers %d-%d: %s" % (self.host, self.slaveid, r, r + 100, result))
+                if isinstance(result, ExceptionResponse):
+                    logger.error("Error reading bridge %s slave %d registers %d-%d: %s" % (self.host, self.slaveid, r, r + r_num, self.excodes[result.exception_code]))
                     client.close()
                     self.__lrelease()
                     return None
                 if result.isError():
-                    logger.error("Error reading bridge %s slave %d registers %d-%d" % (self.host, self.slaveid, r, r + 100))
+                    logger.error("Error reading bridge %s slave %d registers %d-%d" % (self.host, self.slaveid, r, r + r_num))
                     client.close()
                     self.__lrelease()
                     return None
@@ -79,19 +103,15 @@ class schneider_tcp():
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 'c': 1}
         measures = {}
         for row in self.mapping:
-            (name, descr, unit, datatype, rw, scale, offset, register) = row
-            register = int(register)
-            scale = float(scale)
-            offset = float(offset)
-            length = types.get(datatype)
-            endian = Endian.Little
+            (name, descr, unit, datatype, rw, scale, offset, register, bit, length) = self.__parse_row(row)
+            endianity = Endian.Little
             if length >= 2:
-                endian = Endian.Big
+                endianity = Endian.Big
             if datatype in ['h', 'H', 'i', 'I'] and hr[register] == 0x8000:
                 continue
             try:
                 registers = list(dict(filter(lambda x:x[0] in range(register, register + types[datatype]), hr.items())).values())
-                decoder = BinaryPayloadDecoder.fromRegisters(registers, byteorder=Endian.Big, wordorder=endian)
+                decoder = BinaryPayloadDecoder.fromRegisters(registers, byteorder=Endian.Big, wordorder=endianity)
                 if datatype == 'b':
                     value = decoder.decode_8bit_int()
                 if datatype == 'B':

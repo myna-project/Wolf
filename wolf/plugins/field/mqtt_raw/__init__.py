@@ -10,26 +10,32 @@ TLSTransports = {'tcp': 'tcp', 'websockets': 'websockets'}
 
 class mqtt_raw():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'host', 'type': 'string', 'default': '127.0.0.1', 'required': True},
+            {'name': 'port', 'type': 'int', 'default': 1883, 'required': True},
+            {'name': 'username', 'type': 'string', 'default': None},
+            {'name': 'password', 'type': 'string', 'default': None},
+            {'name': 'transport', 'type': 'enum', 'default': 'tcp', 'enum': TLSTransports, 'required': True},
+            {'name': 'protocol', 'type': 'enum', 'default': 'mqttv311', 'enum': MQProtocols, 'required': True},
+            {'name': 'keepalive', 'type': 'int', 'default': 60, 'required': True},
+            {'name': 'topic', 'type': 'string', 'default': None, 'required': True},
+            {'name': 'qos', 'type': 'int', 'default': 0, 'required': True},
+            {'name': 'replace', 'type': 'string', 'default': None},
+            {'name': 'cacert', 'type': 'string', 'default': None},
+            {'name': 'tlsenable', 'type': 'boolean', 'default': False},
+            {'name': 'tlsverify', 'type': 'boolean', 'default': True},
+            {'name': 'tlsversion', 'type': 'enum', 'default': 'tlsv1.0', 'enum': TLSVersions},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.host = config.get(self.name, 'host', fallback = '127.0.0.1')
-        self.port = config.getint(self.name, 'port', fallback = 1883)
-        self.username = config.get(self.name, 'username', fallback = None)
-        self.password = config.get(self.name, 'password', fallback = None)
-        self.transport = config.getenum(self.name, 'transport', enum=TLSTransports, fallback = 'tcp')
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.Raw)
-        self.protocol = config.getenum(self.name, 'protocol', enum=MQProtocols, fallback = 'mqttv311')
-        self.keepalive = config.getint(self.name, 'keepalive', fallback = 60)
-        self.cacert = config.get(self.name, 'cacert', fallback = None)
-        self.tlsenable = config.getboolean(self.name, 'tlsenable', fallback = False)
-        self.tlsversion = config.getenum(self.name, 'tlsversion', enum=TLSVersions, fallback = 'tlsv1.0')
-        self.tlsverify = config.getboolean(self.name, 'tlsverify', fallback = True)
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Raw)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
 
     def on_connect(self, client, userdata, flags, rc):
         if rc != 0:
@@ -37,10 +43,12 @@ class mqtt_raw():
         else:
             logger.info("Connected to MQTT broker %s result code %d" % (self.host, rc))
             for row in self.mapping:
-                (name, descr, unit, datatype, rw, scale, offset, topic, qos) = row
-                qos = int(qos)
-                self.client.subscribe(topic, qos=qos)
-                logger.debug('Subscribed to topic "%s" QoS %d' % (topic, qos))
+                (name, descr, unit, datatype, rw, scale, offset, rwtopic, *wrtopic) = row
+                topic = rwtopic
+                if self.topic:
+                    topic = '%s/%s' % (self.topic, topic)
+                self.client.subscribe(topic, qos=self.qos)
+                logger.debug('Subscribed to topic "%s" QoS %d' % (topic, self.qos))
 
     def on_disconnect(self, client, userdata, rc=0):
         if rc != 0:
@@ -51,16 +59,23 @@ class mqtt_raw():
     def on_message(self, client, userdata, message):
         logger.debug('Plugin %s broker %s topic "%s" QoS %s message "%s"' % (self.name, self.host, message.topic, message.qos, message.payload.decode("utf-8")))
         payload = message.payload.decode("utf-8")
-
         measures = {}
         for row in self.mapping:
-            (name, descr, unit, datatype, rw, scale, offset, topic) = row
+            (name, descr, unit, datatype, rw, scale, offset, rwtopic, *wrtopic) = row
             scale = float(scale)
             offset = float(offset)
+            topic = rwtopic
+            if self.topic:
+                topic = '%s/%s' % (self.topic, rwtopic)
             if message.topic == topic:
                 value = payload
+                if datatype in ('c'):
+                    try:
+                        value = {'on': True, 'On': True, 'ON': True, '1': True, 1: True, 'off': False, 'Off': False, 'OFF': False, '0': False, 0: False}[payload]
+                    except KeyError:
+                        value = False
                 if datatype not in ('c', 's'):
-                    value = round(value * scale, 8) + offset
+                    value = round(float(payload.replace(':','')) * scale, 8) + offset
                 measures[name] = value
                 ut = time.time()
                 data = {'ts': ut, 'client_id': self.clientid, 'device_id': self.deviceid, 'measures': measures}
@@ -110,12 +125,25 @@ class mqtt_raw():
     def write(self, name, value):
         row = list(filter(lambda r: r[0] == name, self.mapping))
         if len(row):
-            (name, descr, unit, datatype, rw, scale, offset, topic, qos) = row[0]
-            qos = int(qos)
-            (rc, mid) = self.client.publish(topic, payload=value, qos=qos)
+            (name, descr, unit, datatype, rw, scale, offset, rwtopic, *wrtopic) = row[0]
+            topic = rwtopic
+            if wrtopic:
+                topic = wrtopic[0]
+            if self.topic:
+                topic = '%s/%s' % (self.topic, topic)
+            if not rw:
+                logger.warn("Not published message on MQTT broker %s topic %s QoS %d: not writable" % (self.host, topic, self.qos))
+                return False
+            if self.replace:
+                try:
+                    replace = eval(self.replace)
+                    value = replace[value]
+                except (IndexError, SyntaxError):
+                    pass
+            (rc, mid) = self.client.publish(topic, payload=value, qos=self.qos)
             if rc:
-                logger.warn("Not published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, qos, rc, mid, value))
+                logger.warn("Not published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, self.qos, rc, mid, value))
             else:
-                logger.debug("Published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, qos, rc, mid, value))
+                logger.debug("Published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, self.qos, rc, mid, value))
             return not rc
         return False

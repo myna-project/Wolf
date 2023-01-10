@@ -8,19 +8,22 @@ from requests.exceptions import ConnectionError, ConnectTimeout, HTTPError, Time
 
 class iolink_json():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'url', 'type': 'string', 'required': True},
+            {'name': 'cid', 'type': 'int', 'default': -1, 'required': True},
+            {'name': 'xport', 'type': 'int', 'required': True},
+            {'name': 'timeout', 'type': 'float', 'default': 3, 'required': True},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.url = config.get(self.name, 'url')
-        self.timeout = config.getint(self.name, 'timeout', fallback = 3)
-        self.cid = config.getint(self.name, 'cid', fallback = -1)
-        self.xport = config.getint(self.name, 'xport')
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.Raw)
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Raw)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
         self.__client = requests.session()
 
     def poll(self):

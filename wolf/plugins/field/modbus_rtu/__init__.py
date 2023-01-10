@@ -18,26 +18,35 @@ locks = {}
 
 class modbus_rtu():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'port', 'type': 'string', 'required': True},
+            {'name': 'slaveid', 'type': 'int', 'default': 0, 'required': True},
+            {'name': 'endianity', 'type': 'enum', 'default': 'little', 'enum': ModbusEndianity, 'required': True},
+            {'name': 'protocol', 'type': 'enum', 'default': 'rtu', 'enum': ModbusProtocols, 'required': True},
+            {'name': 'stopbits', 'type': 'float', 'default': Defaults.Stopbits, 'required': True},
+            {'name': 'bytesize', 'type': 'int', 'default': Defaults.Bytesize, 'required': True},
+            {'name': 'parity', 'type': 'string', 'default': Defaults.Parity, 'required': True},
+            {'name': 'baudrate', 'type': 'int', 'default': Defaults.Baudrate, 'required': True},
+            {'name': 'timeout', 'type': 'float', 'default': Defaults.Timeout, 'required': True},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.lock = threading.Lock()
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.port = config.get(self.name, 'port')
-        self.slaveid = config.getint(self.name, 'slaveid', fallback = 0)
-        self.endian = config.getenum(self.name, 'endianity', enum=ModbusEndianity, fallback = 'little')
-        self.stopbits = config.getfloat(self.name, 'stopbits', fallback = Defaults.Stopbits)
-        self.bytesize = config.getint(self.name, 'bytesize', fallback = Defaults.Bytesize)
-        self.parity = config.get(self.name, 'parity', fallback = Defaults.Parity)
-        self.baudrate = config.getint(self.name, 'baudrate', fallback = Defaults.Baudrate)
-        self.timeout = config.getint(self.name, 'timeout', fallback = Defaults.Timeout)
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.Modbus)
-        protocol = config.getenum(self.name, 'protocol', enum=ModbusProtocols, fallback = 'rtu')
-        self.method = protocol
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.Modbus)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
+        self.excodes = {0x00: "Success", 0x01: "Illegal function code", 0x02: "Illegal data address", 0x03: "Illegal data value", 
+                        0x04: "Server device failure", 0x05: "Acknowledge", 0x06: "Server device busy", 0x07: "Negative acknowledge",
+                        0x08: "Memory parity error", 0x0A: "Gateway path unavailable", 0x0B: "Gateway target not responding",
+                        0xE0: "Timeout", 0xE1: "Invalid server", 0xE2: "CRC check error", 0xE3: "Function code mismatch", 
+                        0xE4: "Server ID mismatch", 0xE5: "Packet length error", 0xE6: "Wrong # of parameters", 0xE7: "Parameter out of bounds",
+                        0xE8: "Request queue full", 0xE9: "Illegal IP or port", 0xEA: "IP connection failed", 0xEB: "TCP header mismatch",
+                        0xEC: "Incomplete request", 0xED: "Invalid ASCII frame", 0xEE: "Invalid ASCII CRC", 0xEF: "Invalid ASCII character"}
 
     def __lacquire(self):
         global locks
@@ -49,14 +58,15 @@ class modbus_rtu():
         logger.debug("Plugin %s lock on %s acquired" % (self.name, self.port))
 
     def __lrelease(self):
-        self.lock.release()
-        logger.debug("Plugin %s lock on %s released" % (self.name, self.port))
+        if self.lock.locked():
+            self.lock.release()
+            logger.debug("Plugin %s lock on %s released" % (self.name, self.port))
 
     def poll(self):
         types = {'b': 1, 'B': 1, 'h': 1, 'H': 1, 'i': 2, 'I': 2, 'q': 4, 'Q': 4, 'f': 2, 'd': 4, 's': 0, 'c': 1}
         measures = {}
         self.__lacquire()
-        client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout)
+        client = ModbusClient(method=self.protocol, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout)
         if not client.connect():
             logger.error("Cannot connect to device %s" % (self.port))
             self.__lrelease()
@@ -89,8 +99,8 @@ class modbus_rtu():
                 client.close()
                 self.__lrelease()
                 return None
-            if type(result) == ExceptionResponse:
-                logger.error("Error reading modbus device %s slave %d register %d: %s" % (self.port, self.slaveid, register, result))
+            if isinstance(result, ExceptionResponse):
+                logger.error("Error reading modbus device %s slave %d register %d: %s" % (self.port, self.slaveid, register, self.excodes[result.exception_code]))
                 client.close()
                 self.__lrelease()
                 return None
@@ -104,11 +114,11 @@ class modbus_rtu():
                 logger.debug('Modbus device: %s slave: %s register: %s (%s) value: %s' % (self.port, self.slaveid, register, name, result.bits[0]))
                 continue
             try:
-                decoder = BinaryPayloadDecoder.fromRegisters(result.registers, byteorder=Endian.Big, wordorder=self.endian)
+                decoder = BinaryPayloadDecoder.fromRegisters(result.registers, byteorder=Endian.Big, wordorder=self.endianity)
                 if string:
                     value = decoder.decode_string(255).decode()
                     measures[name] = value
-                    logger.debug('Modbus device: %s slave: %s register: %s (%s) value: %s' % (self.port, self.slaveid, register, name, value))
+                    logger.debug('Modbus device: %s slave: %s register: %s (%s) value: %s' % (self.port, self.slaveid, register, name, measures[name]))
                     continue
                 if datatype == 'b':
                     value = decoder.decode_8bit_int()
@@ -149,7 +159,7 @@ class modbus_rtu():
 
     def write(self, name, value):
         self.__lacquire()
-        client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout, retry_on_empty=True, retry_on_invalid=True)
+        client = ModbusClient(method=self.method, port=self.port, stopbits=self.stopbits, bytesize=self.bytesize, partity=self.parity, baudrate=self.baudrate, timeout=self.timeout)
         if not client.connect():
             logger.error("Cannot connect to device %s" % (self.port))
             self.__lrelease()
@@ -164,7 +174,7 @@ class modbus_rtu():
                 self.__lrelease()
                 return False
             try:
-                builder = BinaryPayloadBuilder(byteorder=Endian.Big, wordorder=self.endian)
+                builder = BinaryPayloadBuilder(byteorder=Endian.Big, wordorder=self.endianity)
                 if datatype == 'b':
                     builder.add_8bit_int(value)
                 if datatype == 'B':
@@ -208,8 +218,8 @@ class modbus_rtu():
                 client.close()
                 self.__lrelease()
                 return False
-            if type(result) == ExceptionResponse:
-                logger.error("Error writing to modbus device %s slave %d register %d: %s" % (self.port, self.slaveid, register, result))
+            if isinstance(result, ExceptionResponse):
+                logger.error("Error writing to modbus device %s slave %d register %d: %s" % (self.port, self.slaveid, register, self.excodes[result.exception_code]))
                 client.close()
                 self.__lrelease()
                 return False

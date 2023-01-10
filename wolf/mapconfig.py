@@ -35,26 +35,27 @@ class WCSVMap():
                 self.__check_type(row, 5, float)
                 self.__check_type(row, 6, float)
                 if csvtype == WCSVType.Modbus:
-                    (name, descr, unit, datatype, rw, scale, offset, register) = row
+                    (name, descr, unit, datatype, rw, scale, offset, register, *bit) = row
                     self.__check_type(row, 7, float)
+                    if bit:
+                        self.__check_type(bit, 0, float)
                 if csvtype == WCSVType.JSON:
-                    (name, descr, unit, datatype, rw, scale, offset, jsonpath) = row
+                    (name, descr, unit, datatype, rw, scale, offset, jsonpath, *opt) = row
                     self.__check_type(row, 7, str)
                     try:
                         path = parse(jsonpath)
                     except (AttributeError, ValueError, Exception, lexer.JsonPathLexerError) as e:
                         raise ValueError('Invalid JSONPath filter "%s" for "%s": %s' % (jsonpath, name, str(e)))
                 if csvtype == WCSVType.XML:
-                    (name, descr, unit, datatype, rw, scale, offset, xpath) = row
+                    (name, descr, unit, datatype, rw, scale, offset, xpath, *opt) = row
                     self.__check_type(row, 7, str)
                     try:
                         path = tree.xpath(xpath)
                     except etree.XPathEvalError as e:
                         raise ValueError('Invalid XPath filter "%s" for "%s": %s' % (xpath, name, str(e)))
                 if csvtype == WCSVType.MQTT:
-                    (name, descr, unit, datatype, rw, scale, offset, topic, qos) = row
+                    (name, descr, unit, datatype, rw, scale, offset, topic, *opt) = row
                     self.__check_type(row, 7, str)
-                    self.__check_type(row, 8, float)
             except Exception as e:
                 wolf.logger.error('"%s" line %d: %s' % (csvfile, ln + 1, str(e)))
                 del self.mapping[ln]
@@ -69,4 +70,3 @@ class WCSVMap():
         for row in csvfile:
             raw = row.split('#')[0].strip()
             if raw: yield raw
-

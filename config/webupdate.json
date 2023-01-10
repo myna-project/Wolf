@@ -2,48 +2,100 @@
     "modules": [
         {
             "channel": "releases",
-            "module": "pymodbus",
-            "repository": "myna-project/pymodbus",
-            "version": "2.4.0-myna"
-        },
-        {
-            "channel": "releases",
-            "module": "pika",
-            "repository": "pika/pika",
-            "version": "1.1.0"
-        },
-        {
-            "channel": "releases",
+            "freeze": false,
             "module": "enocean",
             "repository": "kipe/enocean",
-            "version": "0.50.1"
+            "version": "0.60.1"
+        },
+        {
+            "channel": "tags",
+            "freeze": false,
+            "module": "influxdb",
+            "repository": "influxdata/influxdb-python",
+            "version": "v5.3.0"
+        },
+        {
+            "channel": "tags",
+            "freeze": false,
+            "module": "paho",
+            "repository": "eclipse/paho.mqtt.python",
+            "version": "v1.6.1"
         },
         {
             "channel": "releases",
+            "freeze": false,
+            "module": "pika",
+            "repository": "pika/pika",
+            "version": "1.4.0"
+        },
+        {
+            "channel": "releases",
+            "freeze": false,
             "module": "pyHS100",
             "repository": "GadgetReactor/pyHS100",
             "version": "0.3.4"
         },
         {
             "channel": "releases",
-            "module": "xbee",
-            "repository": "niolabs/python-xbee",
-            "version": "v2.3.2"
+            "freeze": false,
+            "module": "pymodbus",
+            "repository": "riptideio/pymodbus",
+            "version": "v2.5.3"
         },
         {
             "channel": "releases",
+            "freeze": false,
+            "module": "snap7",
+            "repository": "gijzelaerr/python-snap7",
+            "version": "1.2"
+        },
+        {
+            "channel": "releases",
+            "freeze": false,
             "module": "wolf",
             "repository": "myna-project/Wolf",
-            "version": "v1.5.5"
+            "version": "v1.6.1"
         },
         {
             "channel": "releases",
+            "freeze": false,
             "module": "wolfui",
-            "repository": "myna-project/WolfUI",
-            "version": "v1.5.0"
+            "repository": "myna-project/Wolf-UI",
+            "version": "v1.6.1"
         }
     ],
     "plugins": [
+        {
+            "installed": true,
+            "need": [
+                "pika"
+            ],
+            "plugin": "cloud/amqp"
+        },
+        {
+            "installed": true,
+            "need": [
+                "influxdb"
+            ],
+            "plugin": "cloud/influxdb"
+        },
+        {
+            "installed": true,
+            "need": [
+                "paho"
+            ],
+            "plugin": "cloud/mqtt"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "cloud/nrg"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "cloud/rest"
+        },
         {
             "installed": true,
             "need": [
@@ -67,6 +119,13 @@
         },
         {
             "installed": true,
+            "need": [
+                "pymodbus"
+            ],
+            "plugin": "field/fnio_tcp"
+        },
+        {
+            "installed": true,
             "need": [],
             "plugin": "field/iolink_json"
         },
@@ -76,6 +135,18 @@
                 "pymodbus"
             ],
             "plugin": "field/iolink_modbus"
+        },
+        {
+            "installed": true,
+            "need": [],
+            "plugin": "field/jeelink"
+        },
+        {
+            "installed": true,
+            "need": [
+                "snap7"
+            ],
+            "plugin": "field/logo8"
         },
         {
             "installed": true,
@@ -94,6 +165,27 @@
         {
             "installed": true,
             "need": [
+                "paho"
+            ],
+            "plugin": "field/mqtt_json"
+        },
+        {
+            "installed": true,
+            "need": [
+                "paho"
+            ],
+            "plugin": "field/mqtt_raw"
+        },
+        {
+            "installed": true,
+            "need": [
+                "paho"
+            ],
+            "plugin": "field/mqtt_xml"
+        },
+        {
+            "installed": true,
+            "need": [
                 "pymodbus"
             ],
             "plugin": "field/qeed_tcp"
@@ -107,59 +199,17 @@
         },
         {
             "installed": true,
-            "need": [],
-            "plugin": "field/mqtt_json"
+            "need": [
+                "snap7"
+            ],
+            "plugin": "field/snap7"
         },
         {
             "installed": true,
-            "need": [],
-            "plugin": "field/mqtt_raw"
-        },
-        {
-            "installed": true,
-            "need": [],
-            "plugin": "field/mqtt_xml"
-        },
-        {
-            "installed": true,
-            "need": [],
-            "plugin": "field/jeelink"
-        },
-        {
-            "installed": false,
             "need": [
                 "pyHS100"
             ],
             "plugin": "field/tplink"
-        },
-        {
-            "installed": false,
-            "need": [
-                "xbee"
-            ],
-            "plugin": "field/zigbee"
-        },
-        {
-            "installed": true,
-            "need": [],
-            "plugin": "cloud/influxdb"
-        },
-        {
-            "installed": true,
-            "need": [
-                "pika"
-            ],
-            "plugin": "cloud/amqp"
-        },
-        {
-            "installed": true,
-            "need": [],
-            "plugin": "cloud/mqtt"
-        },
-        {
-            "installed": true,
-            "need": [],
-            "plugin": "cloud/rest"
         }
     ]
 }

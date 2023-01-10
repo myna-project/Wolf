@@ -4,13 +4,11 @@ After=syslog.target
 
 [Service]
 Type=simple
-User=nobody
-Group=nogroup
+User=wolf
+Group=wolf
 WorkingDirectory=/opt/wolf
 ExecStart=/opt/wolf/wolf.py
 ExecReload=/bin/kill -HUP -- $MAINPID
-StandardOutput=syslog
-StandardError=syslog
 Restart=always
 
 [Install]

@@ -12,28 +12,33 @@ TLSTransports = {'tcp': 'tcp', 'websockets': 'websockets'}
 
 class mqtt_json():
 
+    params = [{'name': 'deviceid', 'type': 'string', 'required': True},
+            {'name': 'host', 'type': 'string', 'default': '127.0.0.1', 'required': True},
+            {'name': 'port', 'type': 'int', 'default': 1883, 'required': True},
+            {'name': 'username', 'type': 'string', 'default': None},
+            {'name': 'password', 'type': 'string', 'default': None},
+            {'name': 'transport', 'type': 'enum', 'default': 'tcp', 'enum': TLSTransports, 'required': True},
+            {'name': 'protocol', 'type': 'enum', 'default': 'mqttv311', 'enum': MQProtocols, 'required': True},
+            {'name': 'keepalive', 'type': 'int', 'default': 60, 'required': True},
+            {'name': 'topic', 'type': 'string', 'required': True},
+            {'name': 'qos', 'type': 'int', 'default': 0, 'required': True},
+            {'name': 'command', 'type': 'string', 'default': None},
+            {'name': 'replace', 'type': 'string', 'default': None},
+            {'name': 'cacert', 'type': 'string', 'default': None},
+            {'name': 'tlsenable', 'type': 'boolean', 'default': False},
+            {'name': 'tlsverify', 'type': 'boolean', 'default': True},
+            {'name': 'tlsversion', 'type': 'enum', 'default': 'tlsv1.0', 'enum': TLSVersions},
+            {'name': 'csvmap', 'type': 'string', 'required': True},
+            {'name': 'description', 'type': 'string', 'default': ''},
+            {'name': 'disabled', 'type': 'boolean', 'default': False}]
+
     def __init__(self, name):
         self.name = name
         self.clientid = config.clientid
-        self.deviceid = config.get(self.name, 'deviceid')
-        self.descr = config.get(self.name, 'descr', fallback = '')
-        self.host = config.get(self.name, 'host', fallback = '127.0.0.1')
-        self.port = config.getint(self.name, 'port', fallback = 1883)
-        self.username = config.get(self.name, 'username', fallback = None)
-        self.password = config.get(self.name, 'password', fallback = None)
-        self.transport = config.getenum(self.name, 'transport', enum=TLSTransports, fallback = 'tcp')
-        csvfile = config.get(self.name, 'csvmap')
-        csvmap = WCSVMap()
-        self.mapping = csvmap.load(csvfile, WCSVType.JSON)
-        self.protocol = config.getenum(self.name, 'protocol', enum=MQProtocols, fallback = 'mqttv311')
-        self.keepalive = config.getint(self.name, 'keepalive', fallback = 60)
-        self.topic = config.get(self.name, 'topic')
-        self.qos = config.getint(self.name, 'qos', fallback = 0)
-        self.cacert = config.get(self.name, 'cacert', fallback = None)
-        self.tlsenable = config.getboolean(self.name, 'tlsenable', fallback = False)
-        self.tlsversion = config.getenum(self.name, 'tlsversion', enum=TLSVersions, fallback = 'tlsv1.0')
-        self.tlsverify = config.getboolean(self.name, 'tlsverify', fallback = True)
-        cache.store_meta(self.deviceid, self.name, self.descr, self.mapping)
+        self.config = config.parse(self.name, self.params)
+        self.__dict__.update(self.config)
+        self.mapping = WCSVMap().load(self.csvmap, WCSVType.JSON)
+        cache.store_meta(self.deviceid, self.name, self.description, self.mapping)
 
     def on_connect(self, client, userdata, flags, rc):
         if rc != 0:
@@ -63,7 +68,7 @@ class mqtt_json():
         measures = {}
         ut = time.time()
         for row in self.mapping:
-            (name, descr, unit, datatype, rw, scale, offset, jsonpath) = row
+            (name, descr, unit, datatype, rw, scale, offset, jsonpath, *wrpayload) = row
             scale = float(scale)
             offset = float(offset)
             value = None
@@ -80,6 +85,11 @@ class mqtt_json():
                 except ValueError:
                     logger.warn('Invalid timestamp %s, defaulting to current time' % value)
                 continue
+            if datatype in ('c'):
+                try:
+                    value = {'on': True, 'On': True, 'ON': True, '1': True, 1: True, 'off': False, 'Off': False, 'OFF': False, '0': False, 0: False}[payload]
+                except KeyError:
+                    value = False
             if datatype not in ('c', 's'):
                 value = round(value * scale, 8) + offset
             measures[name] = value
@@ -129,8 +139,23 @@ class mqtt_json():
     def write(self, name, value):
         row = list(filter(lambda r: r[0] == name, self.mapping))
         if len(row):
-            (name, descr, unit, datatype, rw, scale, offset, jsonpath) = row[0]
-            (rc, mid) = self.client.publish(topic, payload=value, qos=self.qos)
+            (name, descr, unit, datatype, rw, scale, offset, jsonpath, *wrpayload) = row[0]
+            topic = self.topic
+            if self.command:
+                topic = self.command
+            if not rw:
+                logger.warn("Not published message on MQTT broker %s topic %s QoS %d: not writable" % (self.host, topic, self.qos))
+                return False
+            if self.replace:
+                try:
+                    replace = eval(self.replace)
+                    value = replace[value]
+                except (IndexError, SyntaxError):
+                    pass
+            if wrpayload:
+                value = wrpayload[0].replace('?', json.dumps(value))
+                value = json.loads(value)
+            (rc, mid) = self.client.publish(topic, payload=json.dumps(value), qos=self.qos)
             if rc:
                 logger.warn("Not published message on MQTT broker %s topic %s QoS %d result code %d message %d: %s" % (self.host, topic, self.qos, rc, mid, value))
             else:
