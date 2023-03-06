@@ -111,6 +111,16 @@
             "plugin": "field/amqp_xml"
         },
         {
+            "installed": false,
+            "need": [],
+            "plugin": "field/dlms_net"
+        },
+        {
+            "installed": false,
+            "need": [],
+            "plugin": "field/dlms_serial"
+        },
+        {
             "installed": true,
             "need": [
                 "enocean"
