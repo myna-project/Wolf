@@ -219,6 +219,7 @@ class WCache():
                 p.execute()
             else:
                 p.reset()
+                break
 
     def save(self):
         self.__ping()
