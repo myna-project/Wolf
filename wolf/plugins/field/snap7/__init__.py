@@ -2,7 +2,7 @@ import datetime
 from dateutil import tz, parser
 import snap7 as s7
 from snap7.util import *
-from snap7.snap7types import *
+from snap7.types import *
 import time
 import threading
 from wolf.mapconfig import WCSVMap, WCSVType
@@ -39,7 +39,7 @@ class snap7():
 
         try:
             self.plc = s7.client.Client()
-        except s7.snap7exceptions.Snap7Exception as e:
+        except s7.exceptions.Snap7Exception as e:
             logger.error('Snap7 error: %s' % str(e))
             return None
 
@@ -148,7 +148,7 @@ class snap7():
         self.__lacquire()
         try:
             self.plc.connect(self.host, self.rack, self.slot, self.port)
-        except s7.snap7exceptions.Snap7Exception as e:
+        except s7.exceptions.Snap7Exception as e:
             logger.error('Cannot connect PLC %s rack %d slot %d %s' % (self.host, self.rack, self.slot, str(e)))
             self.__lrelease()
             return None
@@ -180,7 +180,7 @@ class snap7():
         self.__lacquire()
         try:
             self.plc.connect(self.host, self.rack, self.slot, self.port)
-        except s7.snap7exceptions.Snap7Exception as e:
+        except s7.exceptions.Snap7Exception as e:
             logger.error('Cannot connect PLC %s rack %d slot %d %s' % (self.host, self.rack, self.slot, str(e)))
             self.__lrelease()
             return False
